@@ -168,7 +168,7 @@ object ReactionTools {
             require(parts.size == 2) { "已知量格式应为 化学式: 数值 单位，例如 H2: 4 g" }
             val index = findSpecies(equation, parts[0])
             require(!known.containsKey(index)) { "${displayChemicalFormula(equation.species[index].formula)} 重复输入" }
-            val amount = parseAmount(parts[1], equation.species[index].parsed.molarMass, gasMolarVolume, allowZero = false)
+            val amount = parseAmount(parts[1], equation.species[index].parsed, gasMolarVolume, allowZero = false)
             known[index] = amount.moles
             conversionSteps += "${displayChemicalFormula(equation.species[index].formula)}：${amount.step}"
             if (amount.gas) gasInputs += index
@@ -206,7 +206,7 @@ object ReactionTools {
             require(!solution.fromProduct) { "计算产率时请用反应物投料求理论量，再输入实际生成物产量" }
             val index = findSpecies(equation, values["actualProduct"].orEmpty())
             require(index >= equation.reactants.size) { "实际产量必须对应方程式右侧的生成物" }
-            val actual = parseAmount(actualText, equation.species[index].parsed.molarMass, gasMolarVolume, allowZero = true)
+            val actual = parseAmount(actualText, equation.species[index].parsed, gasMolarVolume, allowZero = true)
             val theoretical = solution.extent * equation.coefficients[index]
             val yield = actual.moles / theoretical * 100.0
             require(yield.isFinite()) { "产率超出数值范围，请检查数值" }
@@ -261,7 +261,7 @@ object ReactionTools {
     }
 
     private data class ConvertedAmount(val moles: Double, val step: String, val gas: Boolean)
-    private fun parseAmount(text: String, molarMass: Double, gasMolarVolume: Double, allowZero: Boolean): ConvertedAmount {
+    private fun parseAmount(text: String, species: ParsedFormula, gasMolarVolume: Double, allowZero: Boolean): ConvertedAmount {
         val match = Regex("^\\s*([+]?(?:\\d+(?:\\.\\d*)?|\\.\\d+)(?:[eE][+-]?\\d+)?)\\s*(kg|mg|ug|µg|μg|g|mmol|umol|µmol|μmol|mol|mL|L|个)\\s*$").matchEntire(text)
         require(match != null) { "数值后请附单位：g、kg、mg、μg、mol、mmol、μmol、L、mL 或 个" }
         val amount = match.groupValues[1].toDoubleOrNull()
@@ -273,6 +273,7 @@ object ReactionTools {
         val step: String
         when {
             unit in massScale -> {
+                val molarMass = species.molarMass
                 require(molarMass > 0.0) { "电子不能使用质量输入；请使用物质的量或粒子数" }
                 val grams = amount * massScale.getValue(unit)
                 moles = grams / molarMass
@@ -287,6 +288,7 @@ object ReactionTools {
                 step = "n = ${reactionFormat(amount)} 个 / (6.02214076×10²³ 个/mol) = ${reactionFormat(moles)} mol"
             }
             else -> {
+                require(species.state == null || species.state == "g") { "体积单位仅用于气体；请检查物种相态或改用质量、物质的量或粒子数" }
                 val liters = amount * if (unit == "mL") 0.001 else 1.0
                 moles = liters / gasMolarVolume
                 step = "${reactionFormat(amount)} $unit = ${reactionFormat(liters)} L；n = V/Vₘ = ${reactionFormat(liters)} L / ${reactionFormat(gasMolarVolume)} L·mol⁻¹ = ${reactionFormat(moles)} mol"

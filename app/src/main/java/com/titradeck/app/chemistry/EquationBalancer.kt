@@ -21,6 +21,8 @@ data class BalancedEquation(
 
 /** Solves the homogeneous conservation system in exact rational arithmetic. */
 object EquationBalancer {
+    private val phaseBeforeSeparator = Regex("^\\((aq|s|l|g)\\)\\s*(?=\\+|$)", RegexOption.IGNORE_CASE)
+
     fun balance(input: String): BalancedEquation {
         require(input.length <= 2048) { "方程式最多 2048 个字符" }
         val sides = input.replace("⇌", "→").replace("⟶", "→").replace("->", "→").replace("=>", "→").replace("=", "→").split('→')
@@ -95,7 +97,7 @@ object EquationBalancer {
             val before = side.substring(start, position).trimEnd()
             val after = side.substring(position + 1).trimStart()
             val explicitCharge = Regex("\\^\\d*$").containsMatchIn(before)
-            val chargeBeforeSeparator = after.startsWith('+') || after.startsWith("(aq)") || after.startsWith("(g)") || after.startsWith("(s)") || after.startsWith("(l)")
+            val chargeBeforeSeparator = after.startsWith('+') || phaseBeforeSeparator.containsMatchIn(after)
             if (explicitCharge || chargeBeforeSeparator || after.isEmpty()) continue
             require(before.isNotBlank()) { "加号之间缺少物种" }
             result += before

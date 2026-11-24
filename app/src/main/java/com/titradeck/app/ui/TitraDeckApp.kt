@@ -101,7 +101,11 @@ fun TitraDeckApp() {
         }
     }
     fun closeTool() { selectedId = null; tab = returnTab; error = null }
-    BackHandler(enabled = selectedId != null) { closeTool() }
+    fun selectTab(next: String) {
+        if (next != "计算" && selectedId == "compound_lookup") selectedId = null
+        tab = next
+    }
+    BackHandler(enabled = tab == "计算" && selectedId != null) { closeTool() }
     TitraTheme(appearance, backgroundHex, themeHex) {
         BoxWithConstraints(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
             val wide = maxWidth >= 840.dp
@@ -111,7 +115,7 @@ fun TitraDeckApp() {
                         listOf("计算", "参考", "历史", "设置").forEachIndexed { index, item ->
                             NavigationBarItem(selected = tab == item,
                                 modifier = Modifier.weight(1f).testTag("nav_item_$index"),
-                                onClick = { tab = item; if (item != "计算") selectedId = null },
+                                onClick = { selectTab(item) },
                                 icon = { NavigationGlyph(index) }, label = { NavigationLabel(index, item) })
                         }
                     }
@@ -123,7 +127,7 @@ fun TitraDeckApp() {
                         AppBrandIcon(contentDescription = "TitraDeck")
                         Spacer(Modifier.height(24.dp))
                         listOf("计算", "参考", "历史", "设置").forEachIndexed { index, item ->
-                            NavigationRailItem(selected = tab == item, onClick = { tab = item; if (item != "计算") selectedId = null },
+                            NavigationRailItem(selected = tab == item, onClick = { selectTab(item) },
                                 modifier = Modifier.testTag("nav_item_$index"),
                                 icon = { NavigationGlyph(index) }, label = { NavigationLabel(index, item) })
                             Spacer(Modifier.height(12.dp))
@@ -479,7 +483,10 @@ private fun HistoryScreen(store: AppStore, version: Int, onRestore: (HistoryEntr
         item { ScreenHeading("计算历史", "输入、结果和原始公式，全部保存在本机。") }
         item { SearchField(query, { query = it; limit = 100 }, "搜索工具名称或输入内容") }
         if (history.isNotEmpty()) item { TextButton(onClick = { clearConfirmation = true }) { Text("清空全部历史", color = MaterialTheme.colorScheme.error) } }
-        if (history.isEmpty() && loaded) item { EmptyState("这里还没有记录", "完成一次计算后，即可在这里恢复输入。") }
+        if (history.isEmpty()) item {
+            if (query.isBlank()) EmptyState("这里还没有记录", "完成一次计算后，即可在这里恢复输入。")
+            else EmptyState("没有匹配的记录", "请更换关键词或清除搜索。")
+        }
         items(history, key = { it.id }) { entry ->
             Card(onClick = { onRestore(entry) }, colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)) {
                 Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {

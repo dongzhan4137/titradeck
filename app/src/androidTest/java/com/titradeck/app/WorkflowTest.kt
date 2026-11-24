@@ -41,6 +41,16 @@ class WorkflowTest {
         compose.waitUntil(10000) { compose.onAllNodesWithText("未知元素", substring = true).fetchSemanticsNodes().isNotEmpty() }
     }
 
+    @Test fun switchingTabsPreservesAnUnsubmittedCalculation() {
+        compose.onNodeWithText("解析一个化学式  →").performClick()
+        compose.onNodeWithText("化学式", substring = false).performTextReplacement("NaCl")
+        compose.onNodeWithText("参考", substring = false).performClick()
+        compose.onNodeWithText("计算", substring = false).performClick()
+        compose.onNodeWithText("化学式", substring = false).assertTextContains("NaCl")
+        compose.onNodeWithText("‹  返回", substring = false).performClick()
+        compose.onNodeWithTag("home_list").assertExists()
+    }
+
     @Test fun elementDetailsAndAppearanceModeWork() {
         compose.onNodeWithText("参考", substring = false).performClick()
         compose.onNodeWithText("搜索符号、名称或原子序数").performTextInput("Fe")
@@ -152,6 +162,8 @@ class WorkflowTest {
             org.junit.Assert.assertEquals(firstTitle, store.history(query = prefix).single().title)
             compose.waitUntil(10000) { compose.onAllNodesWithText(secondTitle).fetchSemanticsNodes().isEmpty() }
             compose.onNodeWithText(firstTitle).assertExists()
+            compose.onNodeWithText("搜索工具名称或输入内容").performTextReplacement("$prefix-missing")
+            compose.waitUntil(10000) { compose.onAllNodesWithText("没有匹配的记录").fetchSemanticsNodes().isNotEmpty() }
         } finally {
             entries.forEach { store.delete(it.id) }
             store.close()
@@ -180,6 +192,16 @@ class WorkflowTest {
         compose.waitUntil(60000) { compose.onAllNodesWithTag("compound_depiction_702").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithTag("show_compound_model").performClick()
         compose.waitUntil(60000) { compose.onAllNodesWithTag("compound_structure_702").fetchSemanticsNodes().isNotEmpty() }
+    }
+
+    @Test fun compoundLookupSubmitsFromTheKeyboard() {
+        compose.onNodeWithTag("home_list").performScrollToNode(hasText("化合物查询"))
+        compose.onNodeWithText("化合物查询", substring = false).performClick()
+        compose.onNodeWithText("CID", substring = false).performClick()
+        val query = compose.onNodeWithText("查询内容", substring = false)
+        query.performTextInput("0")
+        query.performImeAction()
+        compose.waitUntil(10000) { compose.onAllNodesWithText("CID 应为正整数。").fetchSemanticsNodes().isNotEmpty() }
     }
 
     @Test fun chineseInorganicNameShowsDepiction() {
