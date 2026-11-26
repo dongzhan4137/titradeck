@@ -156,6 +156,130 @@ class PhysicalMathTest {
         rejected { tool("dilution", "c2" to "10") }
         rejected { tool("fraction", "part" to "101", "total" to "100") }
     }
+
+    @Test fun selectedUnitsPreserveEquivalentPhysicalResults() {
+        val dilution = tool(
+            "dilution",
+            "unknown" to "v1",
+            "c1" to "1000", "c1Unit" to "mM",
+            "c2" to "100", "c2Unit" to "mM",
+            "v2" to "0.1", "v2Unit" to "L",
+            "v1Unit" to "L",
+        )
+        near(0.01, dilution.value.toDouble())
+        assertEquals("L", dilution.unit)
+
+        val mixed = tool(
+            "mixing",
+            "c1" to "1000", "c1Unit" to "mM", "v1" to "0.1", "v1Unit" to "L",
+            "c2" to "200", "c2Unit" to "mM", "v2" to "0.2", "v2Unit" to "L",
+            "finalVolume" to "300", "finalVolumeUnit" to "mL",
+        )
+        near(0.466666666666, mixed.value.toDouble())
+
+        val concentration = tool(
+            "concentration", "molarMass" to "0.05844", "molarMassUnit" to "kg/mol",
+            "density" to "1.04", "densityUnit" to "kg/L",
+        )
+        near(tool("concentration").value.toDouble(), concentration.value.toDouble())
+
+        val ph = tool(
+            "ph", "concentration" to "100", "concentrationUnit" to "mM",
+        )
+        near(tool("ph").value.toDouble(), ph.value.toDouble())
+
+        val gas = tool(
+            "ideal_gas", "unknown" to "v", "p" to "1", "pUnit" to "atm",
+            "n" to "1000", "nUnit" to "mmol", "t" to "25", "tUnit" to "C", "vUnit" to "mL",
+        )
+        near(PhysicalMath.R * 298.15 / PhysicalMath.ATM * 1e6, gas.value.toDouble())
+        assertEquals("mL", gas.unit)
+
+        val millivolts = tool(
+            "nernst", "e0" to "0", "e0Unit" to "mV", "temperature" to "25", "temperatureUnit" to "C",
+            "mode" to "ph", "ph" to "7", "hExponent" to "-2",
+        )
+        near(-414.1154478, millivolts.value.toDouble(), 1e-7)
+        assertEquals("mV", millivolts.unit)
+
+        val currentInMilliamps = tool(
+            "electrolysis", "current" to "1000", "currentUnit" to "mA",
+            "time" to (PhysicalMath.F / 3600.0).toString(), "timeUnit" to "h", "electrons" to "2",
+            "molarMass" to "0.063546", "molarMassUnit" to "kg/mol",
+        )
+        near(31.773, currentInMilliamps.value.toDouble())
+
+        val standardKp = tool("kc_kp")
+        val celsiusPaKp = tool(
+            "kc_kp", "temperature" to "25", "temperatureUnit" to "C",
+            "pressure" to "101325", "pressureUnit" to "Pa",
+        )
+        near(standardKp.value.toDouble(), celsiusPaKp.value.toDouble())
+
+        val commonIon = tool(
+            "solubility", "commonA" to "100", "commonAUnit" to "mM",
+            "commonB" to "0", "commonBUnit" to "mM", "molarMass" to "0.14332", "molarMassUnit" to "kg/mol",
+        )
+        val expectedCommonIon = PhysicalMath.solubility(1.8e-10, 1, 1, 0.1, 0.0)
+        near(expectedCommonIon.solubility, commonIon.value.toDouble())
+        near(expectedCommonIon.solubility * 143.32, commonIon.rows.first { it.label == "质量溶解度" }.value.toDouble())
+
+        val complex = tool(
+            "complex", "metal" to "1", "metalUnit" to "mM", "ligand" to "1", "ligandUnit" to "mM",
+        )
+        near(PhysicalMath.complex(1e6, 0.001, 0.001).bound, complex.value.toDouble())
+
+        val expectedK2 = PhysicalMath.rateAtTemperature(0.01, 50000.0, 298.15, 308.15) * 60.0
+        val arrhenius = tool(
+            "arrhenius", "unknown" to "k2", "k1" to "0.6", "rateUnit" to "min-1",
+            "t1" to "25", "t2" to "35", "tempUnit" to "C",
+            "ea" to (50000.0 / 4184.0).toString(), "energyUnit" to "kcal/mol",
+        )
+        near(expectedK2, arrhenius.value.toDouble())
+        assertEquals("min-1", arrhenius.unit)
+
+        val firstOrder = tool(
+            "first_order", "unknown" to "remaining", "k" to "0.6", "rateUnit" to "min-1",
+            "time" to "1", "timeUnit" to "min", "halfLifeUnit" to "h",
+            "initial" to "100", "concentrationUnit" to "mM",
+        )
+        near(100.0 * exp(-0.6), firstOrder.value.toDouble())
+        assertEquals("mM", firstOrder.unit)
+        near(ln(2.0) / 0.6 / 60.0, firstOrder.rows.first { it.label == "半衰期" }.value.toDouble())
+
+        val minuteRate = tool(
+            "first_order", "k" to "0.6", "rateUnit" to "min-1", "halfLifeUnit" to "min",
+        )
+        near(ln(2.0) / 0.6, minuteRate.value.toDouble())
+        assertEquals("min", minuteRate.unit)
+
+        val jouleHess = tool(
+            "hess", "enthalpyUnit" to "J",
+            "reactions" to "C + O2 → CO2 | 1 | -393500\nCO + 0.5O2 → CO2 | -1 | -283000",
+        )
+        near(-110500.0, jouleHess.value.toDouble())
+        assertTrue(jouleHess.unit.startsWith("J"))
+    }
+
+    @Test fun everyUnitKeyReferencesAChoiceField() {
+        PhysicalTools.tools.forEach { tool ->
+            val fields = tool.fields.associateBy { it.key }
+            tool.fields.filter { it.unitKey != null }.forEach { field ->
+                val unitField = fields[field.unitKey!!]
+                assertNotNull("${tool.id}.${field.key} unit field", unitField)
+                assertTrue("${tool.id}.${field.key} unit choices", unitField!!.choices.isNotEmpty())
+            }
+        }
+        ReactionTools.tools.forEach { tool ->
+            val fields = tool.fields.associateBy { it.key }
+            tool.fields.filter { it.unitKey != null }.forEach { field ->
+                val unitField = fields[field.unitKey!!]
+                assertNotNull("${tool.id}.${field.key} unit field", unitField)
+                assertTrue("${tool.id}.${field.key} unit choices", unitField!!.choices.isNotEmpty())
+            }
+        }
+    }
+
     @Test fun everyToolDefaultIsComputableAndDocumented() {
         assertTrue(PhysicalTools.tools.size >= 16)
         PhysicalTools.tools.forEach { spec ->

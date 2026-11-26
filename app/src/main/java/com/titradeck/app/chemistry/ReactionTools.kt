@@ -4,6 +4,27 @@ import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
+internal const val maxStoichiometryKnownAmounts = 24
+internal val stoichiometryAmountSeparator = Regex("[:：=]")
+
+internal object StoichiometryUnits {
+    val choices = listOf("g", "kg", "mg", "μg", "mol", "mmol", "μmol", "L", "mL", "个")
+        .map { Choice(it, it) }
+    private val aliases = mapOf("ug" to "μg", "µg" to "μg", "umol" to "μmol", "µmol" to "μmol")
+    val pattern = (choices.map(Choice::value) + aliases.keys).joinToString("|")
+
+    fun canonical(unit: String): String = aliases[unit] ?: unit
+}
+
+private val stoichiometryPressureFactors = mapOf(
+    "Pa" to 1.0,
+    "kPa" to 1_000.0,
+    "atm" to 101_325.0,
+    "bar" to 100_000.0,
+    "mmHg" to 101_325.0 / 760.0,
+)
+private val molarMassFactors = mapOf("g/mol" to 1.0, "kg/mol" to 1_000.0, "mg/mol" to 1e-3)
+
 data class StoichiometrySolution(
     val extent: Double,
     val limitingIndices: List<Int>,
@@ -96,11 +117,13 @@ object ReactionTools {
             formula = "n = m/M = PV/(RT)；ξ = min(nᵢ/νᵢ)；η = 实际产量/理论产量 × 100%",
             fields = listOf(
                 FieldSpec("equation", "反应方程式", "H2(g) + O2(g) -> H2O(l)", "先指定反应物和生成物，系数自动配平", multiline = true),
-                FieldSpec("amounts", "已知量（每行一种物质）", "H2: 4 g\nO2: 32 g", "格式：化学式: 数值 单位；支持 g、kg、mg、mol、mmol、L、mL、个", multiline = true),
-                FieldSpec("temperature", "气体温度 / K", "273.15", "仅气体体积换算使用"),
-                FieldSpec("pressure", "气体绝对压力 / Pa", "101325", "仅气体体积换算使用"),
+                FieldSpec("amounts", "已知量", "H2: 4 g\nO2: 32 g"),
+                FieldSpec("temperature", "气体温度", "273.15", "仅气体体积换算使用", unitKey = "temperatureUnit"),
+                FieldSpec("temperatureUnit", "温度单位", "K", choices = listOf(Choice("K", "K"), Choice("C", "°C"))),
+                FieldSpec("pressure", "气体绝对压力", "101325", "仅气体体积换算使用", unitKey = "pressureUnit"),
+                FieldSpec("pressureUnit", "压力单位", "Pa", choices = stoichiometryPressureFactors.keys.map { Choice(it, it) }),
                 FieldSpec("actualProduct", "实测生成物（可选）", "H2O", "与方程式中的生成物对应"),
-                FieldSpec("actualAmount", "实际产量（可选，含单位）", "", "如 30 g；填写后计算产率"),
+                FieldSpec("actualAmount", "实际产量（可选）"),
             ),
             calculate = ::calculateStoichiometry,
         ),
@@ -109,7 +132,8 @@ object ReactionTools {
             formula = "nᵢ ∝ wᵢ/Aᵣ,ᵢ；分子式倍数 k = M分子/M经验式",
             fields = listOf(
                 FieldSpec("percentages", "元素质量百分比（每行一项）", "C: 40.00\nH: 6.71\nO: 53.29", "如 C: 40.00；数值单位为 %", multiline = true),
-                FieldSpec("molarMass", "分子摩尔质量 / g·mol⁻¹（可选）", "180.156", "留空只求经验式"),
+                FieldSpec("molarMass", "分子摩尔质量（可选）", "180.156", "留空只求经验式", unitKey = "molarMassUnit"),
+                FieldSpec("molarMassUnit", "摩尔质量单位", "g/mol", choices = molarMassFactors.keys.map { Choice(it, it) }),
                 FieldSpec("tolerance", "允许组成偏差 / 百分点", "0.15", "用于处理元素分析数据的舍入误差"),
             ),
             calculate = ::calculateEmpirical,
@@ -154,17 +178,23 @@ object ReactionTools {
 
     private fun calculateStoichiometry(values: Map<String, String>): CalculationResult {
         val equation = EquationBalancer.balance(values["equation"].orEmpty())
-        val temperature = positiveNumber(values["temperature"] ?: "273.15", "气体温度")
-        val pressure = positiveNumber(values["pressure"] ?: "101325", "气体绝对压力")
+        val temperatureValue = finiteNumber(values["temperature"] ?: "273.15", "气体温度")
+        val temperatureUnit = values["temperatureUnit"].orEmpty().ifBlank { "K" }
+        require(temperatureUnit == "K" || temperatureUnit == "C") { "请选择有效温度单位。" }
+        val temperature = temperatureValue + if (temperatureUnit == "C") 273.15 else 0.0
+        require(temperature > 0.0) { "气体温度必须高于绝对零度。" }
+        val pressureUnit = values["pressureUnit"].orEmpty().ifBlank { "Pa" }
+        val pressure = positiveNumber(values["pressure"] ?: "101325", "气体绝对压力") *
+            (stoichiometryPressureFactors[pressureUnit] ?: throw IllegalArgumentException("请选择有效压力单位。"))
         val gasMolarVolume = 8.31446261815324 * temperature / pressure * 1000.0 // L/mol
         require(gasMolarVolume.isFinite() && gasMolarVolume > 0) { "气体条件超出数值范围" }
         val lines = values["amounts"].orEmpty().lines().map(String::trim).filter(String::isNotEmpty)
-        require(lines.size in 1..24) { "请输入 1 至 24 行已知量" }
+        require(lines.size in 1..maxStoichiometryKnownAmounts) { "请输入 1 至 24 行已知量" }
         val known = linkedMapOf<Int, Double>()
         val conversionSteps = mutableListOf<String>()
         val gasInputs = mutableSetOf<Int>()
         for (line in lines) {
-            val parts = line.split(Regex("[:：=]"), limit = 2)
+            val parts = line.split(stoichiometryAmountSeparator, limit = 2)
             require(parts.size == 2) { "已知量格式应为 化学式: 数值 单位，例如 H2: 4 g" }
             val index = findSpecies(equation, parts[0])
             require(!known.containsKey(index)) { "${displayChemicalFormula(equation.species[index].formula)} 重复输入" }
@@ -241,11 +271,14 @@ object ReactionTools {
         var answer = displayChemicalFormula(empirical.formula)
         val measuredMass = values["molarMass"].orEmpty().trim()
         if (measuredMass.isNotEmpty()) {
-            val molecular = EmpiricalFormulaSolver.molecularFormula(empirical, positiveNumber(measuredMass, "分子摩尔质量"))
+            val molarMassUnit = values["molarMassUnit"].orEmpty().ifBlank { "g/mol" }
+            val molarMass = positiveNumber(measuredMass, "分子摩尔质量") *
+                (molarMassFactors[molarMassUnit] ?: throw IllegalArgumentException("请选择有效摩尔质量单位。"))
+            val molecular = EmpiricalFormulaSolver.molecularFormula(empirical, molarMass)
             answer = displayChemicalFormula(molecular.first)
             rows.add(0, ResultRow("分子式", answer))
             rows += ResultRow("经验式倍数", molecular.second.toString())
-            steps += "k = M分子 / M经验式 ≈ ${molecular.second}；所有原子下标乘以 k，得到 $answer。"
+            steps += "k = M分子 / M经验式 ≈ ${molecular.second}；输入摩尔质量换算为 ${reactionFormat(molarMass)} g/mol，所有原子下标乘以 k，得到 $answer。"
         }
         return CalculationResult(if (measuredMass.isEmpty()) "经验式" else "分子式", answer, rows = rows, steps = steps,
             notes = listOf("输入应覆盖样品全部元素；百分比在舍入容差内归一化为 100%。", "经验式受实验精度限制，使用 1 至 24 的分母搜索小整数比；不能单凭组成确定结构或异构体。", "分子式推导要求给定摩尔质量与经验式量的整数倍在 1% 内相符。"))
@@ -262,7 +295,7 @@ object ReactionTools {
 
     private data class ConvertedAmount(val moles: Double, val step: String, val gas: Boolean)
     private fun parseAmount(text: String, molarMass: Double, gasMolarVolume: Double, allowZero: Boolean): ConvertedAmount {
-        val match = Regex("^\\s*([+]?(?:\\d+(?:\\.\\d*)?|\\.\\d+)(?:[eE][+-]?\\d+)?)\\s*(kg|mg|ug|µg|μg|g|mmol|umol|µmol|μmol|mol|mL|L|个)\\s*$").matchEntire(text)
+        val match = Regex("^\\s*([+]?(?:\\d+(?:\\.\\d*)?|\\.\\d+)(?:[eE][+-]?\\d+)?)\\s*(${StoichiometryUnits.pattern})\\s*$").matchEntire(text)
         require(match != null) { "数值后请附单位：g、kg、mg、μg、mol、mmol、μmol、L、mL 或 个" }
         val amount = match.groupValues[1].toDoubleOrNull()
         require(amount != null && amount.isFinite() && amount <= 1e100 && (if (allowZero) amount >= 0.0 else amount > 0.0)) { "数量须为${if (allowZero) "非负" else "正"}有限数，且不超过 1e100" }
@@ -299,6 +332,12 @@ object ReactionTools {
     private fun positiveNumber(input: String, label: String): Double {
         val number = input.trim().toDoubleOrNull()
         require(number != null && number.isFinite() && number > 0 && number <= 1e100) { "$label 必须是正有限数，且不超过 1e100" }
+        return number
+    }
+
+    private fun finiteNumber(input: String, label: String): Double {
+        val number = input.trim().replace('−', '-').replace(',', '.').toDoubleOrNull()
+        require(number != null && number.isFinite() && abs(number) <= 1e100) { "$label 必须是有限数，且不超过 1e100" }
         return number
     }
 }

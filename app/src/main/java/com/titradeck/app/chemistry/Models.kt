@@ -13,6 +13,7 @@ data class FieldSpec(
     val hint: String = "",
     val choices: List<Choice> = emptyList(),
     val multiline: Boolean = false,
+    val unitKey: String? = null,
 )
 data class ResultRow(val label: String, val value: String, val unit: String = "")
 data class MoleculeAtom(val symbol: String, val x: Float, val y: Float, val z: Float = 0f,

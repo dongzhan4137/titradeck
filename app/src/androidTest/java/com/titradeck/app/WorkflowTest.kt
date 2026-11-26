@@ -2,6 +2,7 @@ package com.titradeck.app
 
 import android.content.ClipboardManager
 import android.content.Context
+import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -9,6 +10,7 @@ import androidx.test.platform.app.InstrumentationRegistry
 import com.titradeck.app.chemistry.CalculationResult
 import com.titradeck.app.chemistry.PhysicalTools
 import com.titradeck.app.data.AppStore
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
@@ -74,18 +76,29 @@ class WorkflowTest {
         compose.onNodeWithTag("home_list").performScrollToNode(hasText("化学单位换算"))
         compose.onNodeWithText("化学单位换算", substring = false).performClick()
         val list = compose.onNodeWithTag("calculator_list")
-        list.performScrollToNode(hasText("摩尔质量 / g·mol⁻¹", substring = false))
-        val molarMass = compose.onNodeWithText("摩尔质量 / g·mol⁻¹", substring = false)
-        molarMass.assertIsNotEnabled()
-        list.performScrollToNode(hasText("目标单位", substring = false))
-        compose.onNodeWithText("目标单位", substring = false).performClick()
-        compose.onNodeWithText("g · 克", substring = false).performClick()
-        list.performScrollToNode(hasText("摩尔质量 / g·mol⁻¹", substring = false))
-        molarMass.assertIsEnabled().performTextReplacement("18")
-        list.performScrollToNode(hasText("目标单位", substring = false))
-        compose.onNodeWithText("目标单位", substring = false).performClick()
+        val sourceUnit = compose.onNodeWithContentDescription("原始单位")
+        val targetUnit = compose.onNodeWithContentDescription("目标单位")
+        list.performScrollToNode(hasContentDescription("原始单位"))
+        val valueBounds = compose.onNodeWithText("原始数值", substring = false).fetchSemanticsNode().boundsInRoot
+        val unitBounds = sourceUnit.fetchSemanticsNode().boundsInRoot
+        assertTrue(unitBounds.left >= valueBounds.center.x)
+        assertTrue(unitBounds.center.y in valueBounds.top..valueBounds.bottom)
+        sourceUnit.performClick()
         compose.onNodeWithText("mmol · 毫摩尔", substring = false).performClick()
-        list.performScrollToNode(hasText("摩尔质量 / g·mol⁻¹", substring = false))
+        sourceUnit.assert(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, "mmol · 毫摩尔"))
+
+        list.performScrollToNode(hasText("摩尔质量", substring = false))
+        val molarMass = compose.onNodeWithText("摩尔质量", substring = false)
+        molarMass.assertIsNotEnabled()
+        list.performScrollToNode(hasContentDescription("目标单位"))
+        targetUnit.performClick()
+        compose.onNodeWithText("g · 克", substring = false).performClick()
+        list.performScrollToNode(hasText("摩尔质量", substring = false))
+        molarMass.assertIsEnabled().performTextReplacement("18")
+        list.performScrollToNode(hasContentDescription("目标单位"))
+        targetUnit.performClick()
+        compose.onNodeWithText("mmol · 毫摩尔", substring = false).performClick()
+        list.performScrollToNode(hasText("摩尔质量", substring = false))
         molarMass.assertIsNotEnabled().assertTextContains("18")
     }
 
@@ -93,25 +106,69 @@ class WorkflowTest {
         compose.onNodeWithTag("home_list").performScrollToNode(hasText("化学单位换算"))
         compose.onNodeWithText("化学单位换算", substring = false).performClick()
         val list = compose.onNodeWithTag("calculator_list")
-        list.performScrollToNode(hasText("目标单位", substring = false))
-        compose.onNodeWithText("目标单位", substring = false).performClick()
+        val targetUnit = compose.onNodeWithContentDescription("目标单位")
+        list.performScrollToNode(hasContentDescription("目标单位"))
+        targetUnit.performClick()
         compose.onNodeWithText("mmol · 毫摩尔", substring = false).performClick()
         compose.onNodeWithText("换算结果", substring = false).assertDoesNotExist()
-        compose.onNodeWithText("开始计算").performScrollTo().performClick()
+        list.performScrollToNode(hasText("开始计算", substring = false))
+        compose.onNodeWithText("开始计算", substring = false).performClick()
         compose.waitUntil(10000) { compose.onAllNodesWithText("1000", substring = false).fetchSemanticsNodes().isNotEmpty() }
-        list.performScrollToNode(hasText("目标单位", substring = false))
-        compose.onNodeWithText("目标单位", substring = false).performClick()
+        list.performScrollToNode(hasContentDescription("目标单位"))
+        targetUnit.performClick()
         compose.onNodeWithText("g · 克", substring = false).performClick()
         list.performScrollToNode(hasText("换算结果", substring = false))
         compose.onNodeWithText("1000", substring = false).assertExists()
-        compose.onNodeWithText("58.44", substring = false).assertDoesNotExist()
-        compose.onNodeWithText("开始计算").performScrollTo().performClick()
-        compose.waitUntil(10000) { compose.onAllNodesWithText("58.44", substring = false).fetchSemanticsNodes().isNotEmpty() }
+        val convertedMass = hasText("58.44", substring = false) and !hasSetTextAction()
+        compose.onNode(convertedMass).assertDoesNotExist()
+        list.performScrollToNode(hasText("开始计算", substring = false))
+        compose.onNodeWithText("开始计算", substring = false).performClick()
+        compose.waitUntil(10000) { compose.onAllNodes(convertedMass).fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithText("历史", substring = false).performClick()
         compose.waitUntil(10000) { compose.onAllNodesWithText("58.44 g", substring = false).fetchSemanticsNodes().isNotEmpty() }
         compose.onAllNodesWithText("恢复输入并查看过程  →")[0].performClick()
-        list.performScrollToNode(hasText("目标单位", substring = false))
-        compose.onNodeWithText("g · 克", substring = false).assertExists()
+        list.performScrollToNode(hasContentDescription("目标单位"))
+        targetUnit.assert(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, "g · 克"))
+    }
+
+    @Test fun gasVolumeUnitCanBeSelectedWhileVolumeIsUnknown() {
+        compose.onNodeWithTag("home_list").performScrollToNode(hasText("理想气体定律", substring = false))
+        compose.onNodeWithText("理想气体定律", substring = false).performClick()
+        val list = compose.onNodeWithTag("calculator_list")
+        list.performScrollToNode(hasContentDescription("体积单位"))
+        val unit = compose.onNodeWithContentDescription("体积单位")
+        compose.onNode(hasText("体积数值", substring = false) and hasSetTextAction()).assertDoesNotExist()
+        unit.performClick()
+        compose.onNodeWithText("mL", substring = false).performClick()
+        unit.assert(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, "mL"))
+        list.performScrollToNode(hasText("开始计算", substring = false))
+        compose.onNodeWithText("开始计算", substring = false).performClick()
+        compose.waitUntil(10000) { compose.onAllNodesWithText("气体体积", substring = false).fetchSemanticsNodes().isNotEmpty() }
+        compose.onNode(hasText("mL", substring = false) and !hasClickAction()).assertExists()
+    }
+
+    @Test fun stoichiometryUsesUnitsSelectedForKnownAndActualAmounts() {
+        val tool = "化学计量与产率"
+        compose.onNodeWithTag("home_list").performScrollToNode(hasText(tool, substring = false))
+        compose.onNodeWithText(tool, substring = false).performClick()
+        val list = compose.onNodeWithTag("calculator_list")
+        val knownUnit = "数值 单位"
+        list.performScrollToNode(hasContentDescription(knownUnit))
+        compose.onAllNodesWithContentDescription(knownUnit).onFirst().performClick()
+        compose.onAllNodesWithText("mol", substring = false).onLast().performClick()
+        compose.onAllNodesWithContentDescription(knownUnit).onFirst()
+            .assert(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, "mol"))
+
+        val actualAmount = "实际产量（可选）"
+        list.performScrollToNode(hasContentDescription("$actualAmount 单位"))
+        compose.onNodeWithContentDescription("$actualAmount 单位").performClick()
+        compose.onAllNodesWithText("mol", substring = false).onLast().performClick()
+        compose.onNode(hasText(actualAmount, substring = false) and hasSetTextAction()).performTextReplacement("1")
+        list.performScrollToNode(hasText("开始计算", substring = false))
+        compose.onNodeWithText("开始计算", substring = false).performClick()
+        val yieldRow = hasText(" · 产率", substring = true)
+        compose.waitUntil(10000) { compose.onAllNodes(yieldRow).fetchSemanticsNodes().isNotEmpty() }
+        compose.onNode(yieldRow).assertExists()
     }
 
     @Test fun formulaAndResultButtonsCopyUnicodeText() {

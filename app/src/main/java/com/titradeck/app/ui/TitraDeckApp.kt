@@ -33,6 +33,7 @@ import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -145,7 +146,12 @@ fun TitraDeckApp() {
                                     CalculatorScreen(visibleTool, inputs, result, error, busy,
                                         onBack = { closeTool() },
                                         onValue = { key, value ->
-                                            val changed = inputs + (key to value)
+                                            val changed = if (visibleTool.id == "fraction" && key == "kind") {
+                                                val defaultUnit = if (value == "mass") "g" else "mL"
+                                                inputs + (key to value) + ("partUnit" to defaultUnit) + ("totalUnit" to defaultUnit)
+                                            } else {
+                                                inputs + (key to value)
+                                            }
                                             inputs = changed
                                             if (visibleTool.id != "unit_converter") resultJson = null
                                             error = null
@@ -266,7 +272,17 @@ private fun CalculatorScreen(tool: ToolDefinition, values: Map<String, String>, 
     val focus = LocalFocusManager.current
     val listState = androidx.compose.foundation.lazy.rememberLazyListState()
     val scope = rememberCoroutineScope()
-    val resultIndex = 4 + tool.fields.size
+    val fieldsByKey = remember(tool) { tool.fields.associateBy { it.key } }
+    val inputFields = remember(tool) {
+        // Only hide a referenced field when it is a real choice list. This keeps
+        // older or externally restored tool definitions usable when their unit
+        // metadata is incomplete.
+        val unitKeys = tool.fields.mapNotNull { source ->
+            source.unitKey?.takeIf { key -> fieldsByKey[key]?.choices?.isNotEmpty() == true }
+        }.toSet()
+        tool.fields.filterNot { it.key in unitKeys }
+    }
+    val resultIndex = 4 + inputFields.size
     LaunchedEffect(result) { if (result != null) listState.animateScrollToItem(resultIndex) }
     Column(Modifier.imePadding()) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -278,13 +294,43 @@ private fun CalculatorScreen(tool: ToolDefinition, values: Map<String, String>, 
             item { ScreenHeading(tool.title, tool.subtitle) }
             item { FormulaPanel(tool.formula) }
             item { Text("01  填写已知条件", style = MaterialTheme.typography.titleMedium) }
-            items(tool.fields, key = { it.key }) { field ->
-                InputField(field, values[field.key] ?: "", busy, tool.id, field.key == values["unknown"],
-                    enabled = tool.id != "unit_converter" || field.key != "molarMass" ||
-                        PhysicalMath.hasDifferentDimensions(values["fromUnit"].orEmpty(), values["toUnit"].orEmpty()),
-                    onPreset = { entry ->
-                        (entry.inputOverrides + (field.key to entry.value.toString())).forEach { (key, value) -> onValue(key, value) }
-                    }) { onValue(field.key, it) }
+            items(inputFields, key = { it.key }) { field ->
+                val value = values[field.key] ?: field.defaultValue
+                if (tool.id == "unit_converter" && field.key == "toUnit") {
+                    val selectedUnit = field.choices.firstOrNull { it.value == value }?.let { compactUnitLabel(it.label) }
+                    OutlinedTextField(
+                        value = result?.takeIf { it.unit == selectedUnit }?.value.orEmpty(),
+                        onValueChange = {},
+                        label = { Text("目标数值") },
+                        placeholder = { Text("待计算") },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = MaterialTheme.shapes.medium,
+                        readOnly = true,
+                        singleLine = true,
+                        trailingIcon = {
+                            UnitDropdown(field.label, field.choices, value, !busy) { onValue(field.key, it) }
+                        },
+                    )
+                } else if (tool.id == "stoichiometry" && (field.key == "amounts" || field.key == "actualAmount")) {
+                    StoichiometryQuantityInput(field, value, !busy) { onValue(field.key, it) }
+                } else {
+                    val unit = field.unitKey?.let { key -> fieldsByKey[key] }
+                        ?.takeIf { it.choices.isNotEmpty() }
+                    InputField(field, value, busy, tool.id, field.key == values["unknown"],
+                        enabled = tool.id != "unit_converter" || field.key != "molarMass" ||
+                            PhysicalMath.hasDifferentDimensions(values["fromUnit"].orEmpty(), values["toUnit"].orEmpty()),
+                        unitSelector = unit?.let { unitField ->
+                            {
+                                val label = if (unitField.key == "tempUnit") "${field.label}单位" else unitField.label
+                                UnitDropdown(label, unitField.choices, values[unitField.key] ?: unitField.defaultValue, !busy) {
+                                    onValue(unitField.key, it)
+                                }
+                            }
+                        },
+                        onPreset = { entry ->
+                            (entry.inputOverrides + (field.key to entry.value.toString())).forEach { (key, value) -> onValue(key, value) }
+                        }) { onValue(field.key, it) }
+                }
             }
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -311,7 +357,7 @@ private fun CalculatorScreen(tool: ToolDefinition, values: Map<String, String>, 
 
 @Composable
 private fun InputField(field: FieldSpec, value: String, busy: Boolean, toolId: String, calculated: Boolean, enabled: Boolean,
-    onPreset: (ReferenceEntry) -> Unit, onChange: (String) -> Unit) {
+    unitSelector: (@Composable () -> Unit)?, onPreset: (ReferenceEntry) -> Unit, onChange: (String) -> Unit) {
     if (field.choices.isNotEmpty()) {
         var expanded by remember { mutableStateOf(false) }
         ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { if (!busy) expanded = !expanded }) {
@@ -337,15 +383,63 @@ private fun InputField(field: FieldSpec, value: String, busy: Boolean, toolId: S
         var constantMenu by remember { mutableStateOf(false) }
         val constants = ReferenceData.entries.filter { it.toolId == toolId && it.fieldKey == field.key }
         Column {
-            OutlinedTextField(if (calculated) "" else value, { onChange(it.take(4000)) }, label = { LatexText(field.label) }, enabled = !busy && !calculated && enabled,
+            OutlinedTextField(if (calculated) "" else value, { onChange(it.take(4000)) }, label = { LatexText(field.label) },
+                enabled = !busy && enabled && (!calculated || unitSelector != null), readOnly = calculated,
                 placeholder = if (calculated) {{ Text("由其他已知量求解") }} else null,
                 modifier = Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.medium, minLines = if (field.multiline) 3 else 1,
                 maxLines = if (field.multiline) 8 else 1, singleLine = !field.multiline,
                 supportingText = if (field.hint.isNotBlank()) {{ LatexText(field.hint) }} else null,
-                trailingIcon = if (constants.isNotEmpty()) {{ TextButton(onClick = { constantMenu = true }) { Text("引用") } }} else null)
+                trailingIcon = unitSelector ?: if (constants.isNotEmpty()) {{ TextButton(onClick = { constantMenu = true }) { Text("引用") } }} else null)
             if (constantMenu) AlertDialog(onDismissRequest = { constantMenu = false }, title = { Text("引用参考值") },
                 text = { Column(Modifier.verticalScroll(rememberScrollState())) { constants.forEach { entry -> TextButton(onClick = { onPreset(entry); constantMenu = false }) { LatexText("${entry.name} · ${entry.value} ${entry.unit}") } } } },
                 confirmButton = { TextButton(onClick = { constantMenu = false }) { Text("取消") } })
+        }
+    }
+}
+
+private fun compactUnitLabel(label: String) = label.substringBefore(" ·")
+
+@Composable
+internal fun UnitDropdown(
+    label: String,
+    choices: List<Choice>,
+    value: String,
+    enabled: Boolean,
+    onChange: (String) -> Unit,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    LaunchedEffect(enabled) {
+        if (!enabled) expanded = false
+    }
+    val open = enabled && expanded
+    val selectedLabel = choices.firstOrNull { it.value == value }?.label ?: value
+    Box {
+        TextButton(
+            onClick = { expanded = true },
+            enabled = enabled,
+            modifier = Modifier
+                .semantics { contentDescription = label; stateDescription = selectedLabel }
+                .sizeIn(minWidth = 48.dp, minHeight = 48.dp),
+            contentPadding = PaddingValues(horizontal = 8.dp),
+        ) {
+            LatexText(
+                compactUnitLabel(selectedLabel),
+                style = MaterialTheme.typography.labelLarge,
+                color = LocalContentColor.current,
+            )
+            Spacer(Modifier.width(4.dp))
+            ExposedDropdownMenuDefaults.TrailingIcon(open)
+        }
+        DropdownMenu(expanded = open, onDismissRequest = { expanded = false }) {
+            choices.forEach { choice ->
+                DropdownMenuItem(
+                    text = { LatexText(choice.label) },
+                    onClick = {
+                        expanded = false
+                        onChange(choice.value)
+                    },
+                )
+            }
         }
     }
 }
