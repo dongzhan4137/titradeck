@@ -38,6 +38,14 @@ object PhysicalTools {
         return n(input, key, label) * factor(factors, selected)
     }
     private fun factor(map: Map<String, Double>, key: String): Double = map[key] ?: throw IllegalArgumentException("请选择有效单位。")
+    private fun conversionRequirementValue(input: Map<String, String>, requirement: PhysicalMath.ConversionInputRequirement): Double {
+        val text = input[requirement.key] ?: requirement.defaultValue
+        val value = text.trim().replace('−', '-').replace(',', '.').toDoubleOrNull()
+        require(value != null && value.isFinite()) { "请输入有效的${requirement.label}。" }
+        val selectedUnit = requirement.unitKey?.let { unit(input, it, requirement.defaultUnit) }
+        val multiplier = selectedUnit?.let { requirement.unitFactors[it] ?: throw IllegalArgumentException("请选择有效单位。") } ?: 1.0
+        return value * multiplier
+    }
     private fun int(input: Map<String, String>, key: String, label: String, range: IntRange): Int {
         val value = n(input, key, label)
         require(value == floor(value) && value >= range.first && value <= range.last) { "$label 必须为 ${range.first}–${range.last} 的整数。" }
@@ -159,25 +167,47 @@ object PhysicalTools {
 
     private fun converterTool() = ToolDefinition("unit_converter", "化学单位换算", "质量、体积、物质的量、粒子数、浓度与温压", ToolCategory.CORE, "m = nM；ρ = cM；N = nNₐ",
             listOf(field("value", "原始数值", "1", unitKey = "fromUnit"), FieldSpec("fromUnit", "原始单位", "mol", choices = PhysicalMath.units.map { Choice(it.id, it.label) }),
-            FieldSpec("toUnit", "目标单位", "particles", choices = PhysicalMath.units.map { Choice(it.id, it.label) }), field("molarMass", "摩尔质量", "58.44", "跨量纲时可输入摩尔质量", unitKey = "molarMassUnit"), select("molarMassUnit", "摩尔质量单位", "g/mol", "g/mol" to "g·mol⁻¹", "kg/mol" to "kg·mol⁻¹", "mg/mol" to "mg·mol⁻¹"))) { input ->
+            FieldSpec("toUnit", "目标单位", "particles", choices = PhysicalMath.units.map { Choice(it.id, it.label) }))) { input ->
         val value = n(input, "value", "原始数值"); val from = s(input, "fromUnit"); val to = s(input, "toUnit")
-        val mw = s(input, "molarMass").trim().replace('−', '-').replace(',', '.').toDoubleOrNull()?.let { it * factor(molarMassFactors, unit(input, "molarMassUnit", "g/mol")) }
-        val result = PhysicalMath.convert(value, from, to, mw)
         val source = PhysicalMath.units.first { it.id == from }; val target = PhysicalMath.units.first { it.id == to }
+        val requirements = PhysicalMath.conversionRequirements(from, to)
+        val parameters = requirements.associate { it.key to conversionRequirementValue(input, it) }
+        val result = PhysicalMath.convert(
+            value, from, to,
+            molarMass = parameters["molarMass"],
+            density = parameters["density"],
+            molarVolume = parameters["molarVolume"],
+            solutionVolume = parameters["solutionVolume"],
+            referenceAmount = parameters["referenceAmount"],
+            referenceMass = parameters["referenceMass"],
+        )
+        val crossDimension = source.dimension != target.dimension
         val steps = mutableListOf("${f(value)} ${source.label.substringBefore(" ·")} → 基准量 → ${f(result)} ${target.label.substringBefore(" ·")}。")
         if (from == "particles" || to == "particles") steps += "N = nNₐ；Nₐ = 6.02214076×10²³ mol⁻¹（SI 定义精确值）。"
-        if (source.dimension != target.dimension) {
+        if (requirements.isNotEmpty()) {
             val massSource = source.dimension == "mass" || source.dimension == "mass_concentration"
             val concentration = source.dimension.endsWith("concentration")
             val sourceBaseUnit = if (massSource) { if (concentration) "g/L" else "g" } else { if (concentration) "mol/L" else "mol" }
             val targetBaseUnit = if (massSource) { if (concentration) "mol/L" else "mol" } else { if (concentration) "g/L" else "g" }
             val sourceBase = value * source.factor
-            val targetBase = if (massSource) sourceBase / mw!! else sourceBase * mw!!
-            val operation = if (massSource) "÷" else "×"
-            steps += "${f(sourceBase)} $sourceBaseUnit $operation ${f(mw)} g/mol = ${f(targetBase)} $targetBaseUnit。"
+            if (parameters.containsKey("molarMass") && requirements.size == 1) {
+                val normalizedMolarMass = parameters.getValue("molarMass")
+                val targetBase = if (massSource) sourceBase / normalizedMolarMass else sourceBase * normalizedMolarMass
+                val operation = if (massSource) "÷" else "×"
+                steps += "${f(sourceBase)} $sourceBaseUnit $operation ${f(normalizedMolarMass)} g/mol = ${f(targetBase)} $targetBaseUnit。"
+            } else {
+                requirements.forEach { requirement ->
+                    steps += "${requirement.label} = ${f(parameters.getValue(requirement.key))} ${requirement.resultUnit}。"
+                }
+            }
         }
         if (source.dimension == "temperature") steps += "T/K = t/°C + 273.15。"
-        CalculationResult("换算结果", f(result), target.label.substringBefore(" ·"), steps = steps, notes = listOf("质量与物质的量、质量浓度与摩尔浓度互换时需要指定摩尔质量。mmHg 采用 760 mmHg = 1 atm 近似。"))
+        val rows = requirements.map { requirement -> ResultRow(requirement.resultLabel, f(parameters.getValue(requirement.key)), requirement.resultUnit) }
+        val notes = buildList {
+            if (requirements.isNotEmpty()) add(requirements.joinToString("；") { it.hint })
+            add("同量纲单位直接按单位因子换算；温度使用摄氏度与开尔文的绝对温标转换。mmHg 采用 760 mmHg = 1 atm 近似。")
+        }
+        CalculationResult("换算结果", f(result), target.label.substringBefore(" ·"), rows = rows, steps = steps, notes = notes)
     }
 
     private fun nernstTool() = ToolDefinition("nernst", "能斯特方程", "电极电势、电池电动势与 pH 的联系", ToolCategory.EQUILIBRIUM, "E = E° − RT/(nF) ln Q",

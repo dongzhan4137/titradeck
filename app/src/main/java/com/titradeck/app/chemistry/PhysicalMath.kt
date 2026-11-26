@@ -135,6 +135,19 @@ object PhysicalMath {
     }
 
     data class UnitDef(val id: String, val label: String, val dimension: String, val factor: Double, val offset: Double = 0.0)
+    data class ConversionInputRequirement(
+        val key: String,
+        val label: String,
+        val defaultValue: String,
+        val unitKey: String? = null,
+        val unitLabel: String = "",
+        val choices: List<Choice> = emptyList(),
+        val defaultUnit: String = "",
+        val unitFactors: Map<String, Double> = emptyMap(),
+        val resultLabel: String = label,
+        val resultUnit: String = "",
+        val hint: String = "",
+    )
     val units = listOf(
         UnitDef("g", "g · 克", "mass", 1.0), UnitDef("mg", "mg · 毫克", "mass", 1e-3),
         UnitDef("ug", "μg · 微克", "mass", 1e-6), UnitDef("kg", "kg · 千克", "mass", 1000.0),
@@ -160,7 +173,92 @@ object PhysicalMath {
         return source.dimension != target.dimension
     }
 
-    fun convert(value: Double, from: String, to: String, molarMass: Double? = null): Double {
+    private val densityFactors = mapOf("g/mL" to 1000.0, "kg/L" to 1000.0, "g/L" to 1.0, "kg/m3" to 1.0)
+    private val molarMassFactors = mapOf("g/mol" to 1.0, "kg/mol" to 1000.0, "mg/mol" to 1e-3)
+    private val molarVolumeFactors = mapOf("L/mol" to 1.0, "m3/mol" to 1000.0, "mL/mol" to 1e-3)
+    private val volumeFactors = mapOf("L" to 1.0, "mL" to 1e-3, "uL" to 1e-6, "m3" to 1000.0)
+    private val massFactors = mapOf("g" to 1.0, "kg" to 1000.0, "mg" to 1e-3, "ug" to 1e-6)
+
+    private fun requirement(
+        key: String,
+        label: String,
+        defaultValue: String,
+        unitKey: String,
+        unitLabel: String,
+        choices: List<Choice>,
+        defaultUnit: String,
+        unitFactors: Map<String, Double>,
+        resultLabel: String,
+        resultUnit: String,
+        hint: String = "",
+    ) = ConversionInputRequirement(key, label, defaultValue, unitKey, unitLabel, choices, defaultUnit, unitFactors, resultLabel, resultUnit, hint)
+
+    private fun choices(vararg values: Pair<String, String>) = values.map { Choice(it.first, it.second) }
+
+    fun conversionRequirements(from: String, to: String): List<ConversionInputRequirement> {
+        val source = units.firstOrNull { it.id == from } ?: return emptyList()
+        val target = units.firstOrNull { it.id == to } ?: return emptyList()
+        if (source.dimension == target.dimension) return emptyList()
+        val dimensions = setOf(source.dimension, target.dimension)
+        val molarMass = requirement(
+            "molarMass", "跨量纲所需摩尔质量", "58.44", "molarMassUnit", "摩尔质量单位",
+            choices("g/mol" to "g·mol⁻¹", "kg/mol" to "kg·mol⁻¹", "mg/mol" to "mg·mol⁻¹"),
+            "g/mol", molarMassFactors, "所需摩尔质量", "g/mol",
+            "跨质量与物质的量、质量浓度与摩尔浓度换算时使用",
+        )
+        val density = requirement(
+            "density", "跨量纲所需密度", "", "densityUnit", "密度单位",
+            choices("g/mL" to "g·mL⁻¹", "kg/L" to "kg·L⁻¹", "g/L" to "g·L⁻¹", "kg/m3" to "kg·m⁻³"),
+            "g/mL", densityFactors, "所需密度", "g/L",
+            "质量与体积之间换算需要样品密度",
+        )
+        val molarVolume = requirement(
+            "molarVolume", "跨量纲所需摩尔体积", "", "molarVolumeUnit", "摩尔体积单位",
+            choices("L/mol" to "L·mol⁻¹", "m3/mol" to "m³·mol⁻¹", "mL/mol" to "mL·mol⁻¹"),
+            "L/mol", molarVolumeFactors, "所需摩尔体积", "L/mol",
+            "气体体积与物质的量之间换算需要指定温度和压力下的摩尔体积",
+        )
+        val solutionVolume = requirement(
+            "solutionVolume", "换算所需溶液体积", "", "solutionVolumeUnit", "溶液体积单位",
+            choices("L" to "L", "mL" to "mL", "uL" to "μL", "m3" to "m³"),
+            "L", volumeFactors, "所需溶液体积", "L",
+            "总量与浓度之间换算需要指定溶液体积",
+        )
+        val referenceAmount = requirement(
+            "referenceAmount", "换算所需物质的量", "", "referenceAmountUnit", "物质的量单位",
+            choices("mol" to "mol", "mmol" to "mmol", "umol" to "μmol", "kmol" to "kmol"),
+            "mol", mapOf("mol" to 1.0, "mmol" to 1e-3, "umol" to 1e-6, "kmol" to 1e3), "所需物质的量", "mol",
+            "体积与浓度之间换算需要指定参考物质的量",
+        )
+        val referenceMass = requirement(
+            "referenceMass", "换算所需质量", "", "referenceMassUnit", "质量单位",
+            choices("g" to "g", "kg" to "kg", "mg" to "mg", "ug" to "μg"),
+            "g", massFactors, "所需质量", "g",
+            "体积与质量浓度之间换算需要指定参考质量",
+        )
+        return when {
+            dimensions == setOf("mass", "amount") || dimensions == setOf("molar_concentration", "mass_concentration") -> listOf(molarMass)
+            dimensions == setOf("mass", "volume") -> listOf(density)
+            dimensions == setOf("amount", "volume") -> listOf(molarVolume)
+            dimensions == setOf("amount", "molar_concentration") || dimensions == setOf("mass", "mass_concentration") -> listOf(solutionVolume)
+            dimensions == setOf("volume", "molar_concentration") -> listOf(referenceAmount)
+            dimensions == setOf("volume", "mass_concentration") -> listOf(referenceMass)
+            dimensions == setOf("mass", "molar_concentration") || dimensions == setOf("amount", "mass_concentration") -> listOf(molarMass, solutionVolume)
+            else -> emptyList()
+        }
+    }
+
+    fun convert(
+        value: Double,
+        from: String,
+        to: String,
+        molarMass: Double? = null,
+        density: Double? = null,
+        molarVolume: Double? = null,
+        solutionVolume: Double? = null,
+        referenceAmount: Double? = null,
+        referenceMass: Double? = null,
+    ): Double {
         finite(value, "数值")
         val source = units.firstOrNull { it.id == from } ?: throw IllegalArgumentException("请选择起始单位。")
         val target = units.firstOrNull { it.id == to } ?: throw IllegalArgumentException("请选择目标单位。")
@@ -168,11 +266,52 @@ object PhysicalMath {
         require(base >= 0.0) { "质量、体积、浓度、绝对压力和物质的量不能为负；温度不能低于绝对零度。" }
         if (source.dimension != target.dimension) {
             val dimensions = setOf(source.dimension, target.dimension)
-            val massAndAmount = dimensions == setOf("mass", "amount")
-            val concentrations = dimensions == setOf("molar_concentration", "mass_concentration")
-            require(massAndAmount || concentrations) { "这两个量纲无法仅凭摩尔质量换算，需要其他条件。" }
-            val mw = positive(molarMass ?: throw IllegalArgumentException("请输入有效的摩尔质量。"), "摩尔质量")
-            base = if (source.dimension == "amount" || source.dimension == "molar_concentration") base * mw else base / mw
+            fun required(parameter: Double?, label: String) = positive(parameter ?: throw IllegalArgumentException("请输入有效的$label。"), label)
+            base = when {
+                dimensions == setOf("mass", "amount") -> {
+                    val mw = required(molarMass, "摩尔质量")
+                    if (source.dimension == "amount") base * mw else base / mw
+                }
+                dimensions == setOf("molar_concentration", "mass_concentration") -> {
+                    val mw = required(molarMass, "摩尔质量")
+                    if (source.dimension == "molar_concentration") base * mw else base / mw
+                }
+                dimensions == setOf("mass", "volume") -> {
+                    val rho = required(density, "密度")
+                    if (source.dimension == "volume") base * rho else base / rho
+                }
+                dimensions == setOf("amount", "volume") -> {
+                    val vm = required(molarVolume, "摩尔体积")
+                    if (source.dimension == "amount") base * vm else base / vm
+                }
+                dimensions == setOf("amount", "molar_concentration") -> {
+                    val volume = required(solutionVolume, "溶液体积")
+                    if (source.dimension == "amount") base / volume else base * volume
+                }
+                dimensions == setOf("mass", "mass_concentration") -> {
+                    val volume = required(solutionVolume, "溶液体积")
+                    if (source.dimension == "mass") base / volume else base * volume
+                }
+                dimensions == setOf("volume", "molar_concentration") -> {
+                    val amount = required(referenceAmount, "参考物质的量")
+                    if (source.dimension == "volume") amount / base else amount / base
+                }
+                dimensions == setOf("volume", "mass_concentration") -> {
+                    val mass = required(referenceMass, "参考质量")
+                    if (source.dimension == "volume") mass / base else mass / base
+                }
+                dimensions == setOf("mass", "molar_concentration") -> {
+                    val mw = required(molarMass, "摩尔质量")
+                    val volume = required(solutionVolume, "溶液体积")
+                    if (source.dimension == "mass") base / mw / volume else base * volume * mw
+                }
+                dimensions == setOf("amount", "mass_concentration") -> {
+                    val mw = required(molarMass, "摩尔质量")
+                    val volume = required(solutionVolume, "溶液体积")
+                    if (source.dimension == "amount") base * mw / volume else base * volume / mw
+                }
+                else -> throw IllegalArgumentException("这两个量纲暂不支持直接换算，请先选择兼容单位。")
+            }
         }
         return finite((base - target.offset) / target.factor, "换算结果")
     }

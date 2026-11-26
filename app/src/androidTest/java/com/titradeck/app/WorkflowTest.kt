@@ -72,34 +72,34 @@ class WorkflowTest {
         compose.onNodeWithTag("radioactive_marker_Fe", useUnmergedTree = true).assertDoesNotExist()
     }
 
-    @Test fun converterEnablesMolarMassOnlyForDifferentDimensions() {
+    @Test fun converterShowsMolarMassOnlyForDifferentDimensions() {
         compose.onNodeWithTag("home_list").performScrollToNode(hasText("化学单位换算"))
         compose.onNodeWithText("化学单位换算", substring = false).performClick()
         val list = compose.onNodeWithTag("calculator_list")
-        val sourceUnit = compose.onNodeWithContentDescription("原始单位")
         val targetUnit = compose.onNodeWithContentDescription("目标单位")
-        list.performScrollToNode(hasContentDescription("原始单位"))
-        val valueBounds = compose.onNodeWithText("原始数值", substring = false).fetchSemanticsNode().boundsInRoot
-        val unitBounds = sourceUnit.fetchSemanticsNode().boundsInRoot
-        assertTrue(unitBounds.left >= valueBounds.center.x)
-        assertTrue(unitBounds.center.y in valueBounds.top..valueBounds.bottom)
-        sourceUnit.performClick()
-        compose.onNodeWithText("mmol · 毫摩尔", substring = false).performClick()
-        sourceUnit.assert(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, "mmol · 毫摩尔"))
+        // The default mol -> particles conversion stays within one dimension.
+        compose.onNodeWithText("跨量纲所需摩尔质量", substring = false).assertDoesNotExist()
 
-        list.performScrollToNode(hasText("摩尔质量", substring = false))
-        val molarMass = compose.onNodeWithText("摩尔质量", substring = false)
-        molarMass.assertIsNotEnabled()
         list.performScrollToNode(hasContentDescription("目标单位"))
         targetUnit.performClick()
         compose.onNodeWithText("g · 克", substring = false).performClick()
-        list.performScrollToNode(hasText("摩尔质量", substring = false))
+        list.performScrollToNode(hasText("跨量纲所需摩尔质量", substring = false))
+        val molarMass = compose.onNodeWithText("跨量纲所需摩尔质量", substring = false)
         molarMass.assertIsEnabled().performTextReplacement("18")
+        val molarMassUnit = compose.onNodeWithContentDescription("摩尔质量单位")
+        molarMassUnit.assertIsEnabled()
+        val molarMassBounds = molarMass.fetchSemanticsNode().boundsInRoot
+        val molarMassUnitBounds = molarMassUnit.fetchSemanticsNode().boundsInRoot
+        assertTrue(molarMassUnitBounds.left >= molarMassBounds.left)
+        assertTrue(molarMassUnitBounds.center.y in molarMassBounds.top..molarMassBounds.bottom)
+        molarMassUnit.performClick()
+        compose.onNodeWithText("kg·mol⁻¹", substring = false).performClick()
+        molarMassUnit.assert(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, "kg·mol⁻¹"))
+
         list.performScrollToNode(hasContentDescription("目标单位"))
         targetUnit.performClick()
         compose.onNodeWithText("mmol · 毫摩尔", substring = false).performClick()
-        list.performScrollToNode(hasText("摩尔质量", substring = false))
-        molarMass.assertIsNotEnabled().assertTextContains("18")
+        compose.onNodeWithText("跨量纲所需摩尔质量", substring = false).assertDoesNotExist()
     }
 
     @Test fun converterUpdatesAndSavesOnlyAfterCalculation() {
@@ -117,6 +117,8 @@ class WorkflowTest {
         list.performScrollToNode(hasContentDescription("目标单位"))
         targetUnit.performClick()
         compose.onNodeWithText("g · 克", substring = false).performClick()
+        list.performScrollToNode(hasText("跨量纲所需摩尔质量", substring = false))
+        compose.onNodeWithText("跨量纲所需摩尔质量", substring = false).assertIsEnabled()
         list.performScrollToNode(hasText("换算结果", substring = false))
         compose.onNodeWithText("1000", substring = false).assertExists()
         val convertedMass = hasText("58.44", substring = false) and !hasSetTextAction()
@@ -124,6 +126,9 @@ class WorkflowTest {
         list.performScrollToNode(hasText("开始计算", substring = false))
         compose.onNodeWithText("开始计算", substring = false).performClick()
         compose.waitUntil(10000) { compose.onAllNodes(convertedMass).fetchSemanticsNodes().isNotEmpty() }
+        list.performScrollToNode(hasText("所需摩尔质量", substring = false))
+        compose.onNodeWithText("所需摩尔质量", substring = false).assertExists()
+        compose.onNodeWithText("58.44 g/mol", substring = false).assertExists()
         compose.onNodeWithText("历史", substring = false).performClick()
         compose.waitUntil(10000) { compose.onAllNodesWithText("58.44 g", substring = false).fetchSemanticsNodes().isNotEmpty() }
         compose.onAllNodesWithText("恢复输入并查看过程  →")[0].performClick()

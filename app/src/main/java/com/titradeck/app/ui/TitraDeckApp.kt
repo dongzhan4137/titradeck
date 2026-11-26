@@ -282,7 +282,12 @@ private fun CalculatorScreen(tool: ToolDefinition, values: Map<String, String>, 
         }.toSet()
         tool.fields.filterNot { it.key in unitKeys }
     }
-    val resultIndex = 4 + inputFields.size
+    val converterRequirements = if (tool.id == "unit_converter") {
+        PhysicalMath.conversionRequirements(values["fromUnit"].orEmpty(), values["toUnit"].orEmpty())
+    } else {
+        emptyList()
+    }
+    val resultIndex = 4 + inputFields.size + converterRequirements.size
     LaunchedEffect(result) { if (result != null) listState.animateScrollToItem(resultIndex) }
     Column(Modifier.imePadding()) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -332,6 +337,11 @@ private fun CalculatorScreen(tool: ToolDefinition, values: Map<String, String>, 
                         }) { onValue(field.key, it) }
                 }
             }
+            if (converterRequirements.isNotEmpty()) {
+                items(converterRequirements, key = { it.key }) { requirement ->
+                    ConversionRequirementInput(requirement, values, busy, onValue)
+                }
+            }
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     if (error != null) Surface(color = MaterialTheme.colorScheme.errorContainer, shape = MaterialTheme.shapes.medium) {
@@ -353,6 +363,32 @@ private fun CalculatorScreen(tool: ToolDefinition, values: Map<String, String>, 
             }
         }
     }
+}
+
+@Composable
+private fun ConversionRequirementInput(
+    requirement: PhysicalMath.ConversionInputRequirement,
+    values: Map<String, String>,
+    busy: Boolean,
+    onValue: (String, String) -> Unit,
+) {
+    val value = values[requirement.key] ?: requirement.defaultValue
+    val unit = requirement.unitKey?.let { values[it] ?: requirement.defaultUnit }
+    OutlinedTextField(
+        value = value,
+        onValueChange = { onValue(requirement.key, it.take(100)) },
+        label = { Text(requirement.label) },
+        supportingText = requirement.hint.takeIf { it.isNotBlank() }?.let { hint -> { Text(hint) } },
+        enabled = !busy,
+        singleLine = true,
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.medium,
+        trailingIcon = {
+            if (requirement.unitKey != null && requirement.choices.isNotEmpty()) {
+                UnitDropdown(requirement.unitLabel, requirement.choices, unit.orEmpty(), !busy) { onValue(requirement.unitKey, it) }
+            }
+        },
+    )
 }
 
 @Composable
