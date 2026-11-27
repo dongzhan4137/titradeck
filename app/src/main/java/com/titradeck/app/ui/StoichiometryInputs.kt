@@ -14,21 +14,25 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.titradeck.app.chemistry.FieldSpec
+import com.titradeck.app.chemistry.InputKind
 import com.titradeck.app.chemistry.StoichiometryUnits
 import com.titradeck.app.chemistry.maxStoichiometryKnownAmounts
 import com.titradeck.app.chemistry.stoichiometryAmountSeparator
 
 private const val defaultUnit = "g"
 private val quantityParts = Regex("^(.*?)\\s*(${StoichiometryUnits.pattern})$")
+private typealias KeyboardFocusHandler = (String, InputKind, String, (String) -> Unit) -> Unit
 
 private data class Quantity(val number: String = "", val unit: String = defaultUnit) {
     fun encode(): String = "$number $unit".trim()
@@ -54,14 +58,15 @@ internal fun StoichiometryQuantityInput(
     field: FieldSpec,
     value: String,
     enabled: Boolean,
+    onKeyboardFocus: KeyboardFocusHandler,
     onChange: (String) -> Unit,
 ) {
     if (field.key == "amounts") {
-        KnownAmountInputs(field.label, value, enabled, onChange)
+        KnownAmountInputs(field.label, value, enabled, onKeyboardFocus, onChange)
     } else {
         var blankUnit by rememberSaveable { mutableStateOf(defaultUnit) }
         val quantity = decodeQuantity(value, blankUnit)
-        QuantityInput(field.label, quantity, enabled, Modifier.fillMaxWidth()) { updated ->
+        QuantityInput(field.key, field.label, quantity, enabled, Modifier.fillMaxWidth(), onKeyboardFocus) { updated ->
             blankUnit = updated.unit
             val encoded = if (updated.number.isBlank()) "" else updated.encode()
             if (encoded != value) onChange(encoded)
@@ -70,7 +75,7 @@ internal fun StoichiometryQuantityInput(
 }
 
 @Composable
-private fun KnownAmountInputs(label: String, value: String, enabled: Boolean, onChange: (String) -> Unit) {
+private fun KnownAmountInputs(label: String, value: String, enabled: Boolean, onKeyboardFocus: KeyboardFocusHandler, onChange: (String) -> Unit) {
     val amounts = remember(value) {
         value.lineSequence().filter(String::isNotBlank).map(::decodeKnownAmount).toList()
             .ifEmpty { listOf(KnownAmount()) }
@@ -84,6 +89,10 @@ private fun KnownAmountInputs(label: String, value: String, enabled: Boolean, on
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(label, style = MaterialTheme.typography.titleSmall)
         amounts.forEachIndexed { index, amount ->
+            val latestAmount by rememberUpdatedState(amount)
+            val updateFormula by rememberUpdatedState<(String) -> Unit> { formula ->
+                updateAmount(index, latestAmount.copy(formula = formula))
+            }
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -96,13 +105,17 @@ private fun KnownAmountInputs(label: String, value: String, enabled: Boolean, on
                             updateAmount(index, amount.copy(formula = formula.take(4000)))
                         }
                     },
-                    modifier = Modifier.weight(1f),
+                    modifier = Modifier.weight(1f).onFocusChanged {
+                        if (it.isFocused && enabled) {
+                            onKeyboardFocus("amounts:$index:formula", InputKind.CHEMICAL_FORMULA, amount.formula) { formula -> updateFormula(formula) }
+                        }
+                    },
                     enabled = enabled,
                     label = { Text("化学式", maxLines = 1) },
                     singleLine = true,
                     shape = MaterialTheme.shapes.medium,
                 )
-                QuantityInput("数值", amount.quantity, enabled, Modifier.weight(2f)) { quantity ->
+                QuantityInput("amounts:$index:quantity", "数值", amount.quantity, enabled, Modifier.weight(2f), onKeyboardFocus) { quantity ->
                     updateAmount(index, amount.copy(quantity = quantity))
                 }
                 IconButton(
@@ -125,12 +138,16 @@ private fun KnownAmountInputs(label: String, value: String, enabled: Boolean, on
 
 @Composable
 private fun QuantityInput(
+    id: String,
     label: String,
     quantity: Quantity,
     enabled: Boolean,
     modifier: Modifier,
+    onKeyboardFocus: KeyboardFocusHandler,
     onChange: (Quantity) -> Unit,
 ) {
+    val latestQuantity by rememberUpdatedState(quantity)
+    val updateNumber by rememberUpdatedState<(String) -> Unit> { number -> onChange(latestQuantity.copy(number = number)) }
     OutlinedTextField(
         value = quantity.number,
         onValueChange = { number ->
@@ -138,7 +155,11 @@ private fun QuantityInput(
                 onChange(quantity.copy(number = number.take(4000)))
             }
         },
-        modifier = modifier,
+        modifier = modifier.onFocusChanged {
+            if (it.isFocused && enabled) {
+                onKeyboardFocus(id, InputKind.NUMBER, quantity.number) { number -> updateNumber(number) }
+            }
+        },
         enabled = enabled,
         label = { Text(label) },
         singleLine = true,

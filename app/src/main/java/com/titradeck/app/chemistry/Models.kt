@@ -6,6 +6,7 @@ enum class ToolCategory(val label: String) {
 }
 
 data class Choice(val value: String, val label: String)
+enum class InputKind { NUMBER, CHEMICAL_FORMULA, CHEMICAL_EQUATION }
 data class FieldSpec(
     val key: String,
     val label: String,
@@ -14,6 +15,7 @@ data class FieldSpec(
     val choices: List<Choice> = emptyList(),
     val multiline: Boolean = false,
     val unitKey: String? = null,
+    val inputKind: InputKind = InputKind.NUMBER,
 )
 data class ResultRow(val label: String, val value: String, val unit: String = "")
 data class MoleculeAtom(val symbol: String, val x: Float, val y: Float, val z: Float = 0f,

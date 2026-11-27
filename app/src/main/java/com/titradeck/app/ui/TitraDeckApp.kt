@@ -34,6 +34,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -51,6 +52,13 @@ import java.util.Locale
 object ToolCatalog {
     val tools by lazy { ReactionTools.tools + PhysicalTools.tools + StructureTools.tools }
 }
+
+private data class KeyboardTarget(
+    val id: String,
+    val kind: InputKind,
+    val text: String,
+    val commit: (String) -> Unit,
+)
 
 @Composable
 fun TitraDeckApp() {
@@ -279,6 +287,20 @@ private fun CalculatorScreen(tool: ToolDefinition, values: Map<String, String>, 
     val listState = androidx.compose.foundation.lazy.rememberLazyListState()
     val scope = rememberCoroutineScope()
     val fieldsByKey = remember(tool) { tool.fields.associateBy { it.key } }
+    var keyboardTarget by remember(tool) { mutableStateOf<KeyboardTarget?>(null) }
+    fun showKeyboard(id: String, kind: InputKind, text: String, commit: (String) -> Unit) {
+        keyboardTarget = KeyboardTarget(id, kind, text, commit)
+        keyboard?.hide()
+    }
+    fun syncKeyboard(id: String, text: String) {
+        if (keyboardTarget?.id == id) keyboardTarget = keyboardTarget?.copy(text = text)
+    }
+    fun updateKeyboard(transform: (String) -> String) {
+        val target = keyboardTarget ?: return
+        val text = transform(target.text)
+        target.commit(text)
+        keyboardTarget = target.copy(text = text)
+    }
     val inputFields = remember(tool) {
         // Only hide a referenced field when it is a real choice list. This keeps
         // older or externally restored tool definitions usable when their unit
@@ -295,13 +317,13 @@ private fun CalculatorScreen(tool: ToolDefinition, values: Map<String, String>, 
     }
     val resultIndex = 4 + inputFields.size + converterRequirements.size
     LaunchedEffect(result) { if (result != null) listState.animateScrollToItem(resultIndex) }
-    Column(Modifier.imePadding()) {
+    Column(Modifier.fillMaxSize().imePadding()) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             TextButton(onClick = onBack) { Text("‹  返回") }
             Text(tool.category.label, Modifier.weight(1f), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
             TextButton(onClick = { onReset(); scope.launch { listState.animateScrollToItem(0) } }, enabled = !busy) { Text("示例") }
         }
-        LazyColumn(modifier = Modifier.testTag("calculator_list"), state = listState, contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        LazyColumn(modifier = Modifier.weight(1f).testTag("calculator_list"), state = listState, contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
             item { ScreenHeading(tool.title, tool.subtitle) }
             item { FormulaPanel(tool.formula) }
             item { Text("01  填写已知条件", style = MaterialTheme.typography.titleMedium) }
@@ -314,7 +336,7 @@ private fun CalculatorScreen(tool: ToolDefinition, values: Map<String, String>, 
                         onValueChange = {},
                         label = { Text("目标数值") },
                         placeholder = { Text("待计算") },
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier.fillMaxWidth().onFocusChanged { if (it.isFocused) keyboardTarget = null },
                         shape = MaterialTheme.shapes.medium,
                         readOnly = true,
                         singleLine = true,
@@ -323,7 +345,15 @@ private fun CalculatorScreen(tool: ToolDefinition, values: Map<String, String>, 
                         },
                     )
                 } else if (tool.id == "stoichiometry" && (field.key == "amounts" || field.key == "actualAmount")) {
-                    StoichiometryQuantityInput(field, value, !busy) { onValue(field.key, it) }
+                    StoichiometryQuantityInput(
+                        field,
+                        value,
+                        !busy,
+                        onKeyboardFocus = { id, kind, text, commit -> showKeyboard(id, kind, text, commit) },
+                    ) { updated ->
+                        onValue(field.key, updated)
+                        syncKeyboard(field.key, updated)
+                    }
                 } else {
                     val unit = field.unitKey?.let { key -> fieldsByKey[key] }
                         ?.takeIf { it.choices.isNotEmpty() }
@@ -338,14 +368,27 @@ private fun CalculatorScreen(tool: ToolDefinition, values: Map<String, String>, 
                                 }
                             }
                         },
+                        onKeyboardFocus = { id, kind, text, commit -> showKeyboard(id, kind, text, commit) },
                         onPreset = { entry ->
                             (entry.inputOverrides + (field.key to entry.value.toString())).forEach { (key, value) -> onValue(key, value) }
-                        }) { onValue(field.key, it) }
+                        }) { updated ->
+                            onValue(field.key, updated)
+                            syncKeyboard(field.key, updated)
+                        }
                 }
             }
             if (converterRequirements.isNotEmpty()) {
                 items(converterRequirements, key = { it.key }) { requirement ->
-                    ConversionRequirementInput(requirement, values, busy, onValue)
+                    ConversionRequirementInput(
+                        requirement,
+                        values,
+                        busy,
+                        onKeyboardFocus = { id, kind, text, commit -> showKeyboard(id, kind, text, commit) },
+                        onValue = { key, updated ->
+                            onValue(key, updated)
+                            if (key == requirement.key) syncKeyboard(requirement.key, updated)
+                        },
+                    )
                 }
             }
             item {
@@ -368,6 +411,17 @@ private fun CalculatorScreen(tool: ToolDefinition, values: Map<String, String>, 
                 if (result == null) EmptyState("等待计算", "确认数值和单位，结果与推导过程将在这里显示。")
             }
         }
+        AnimatedVisibility(visible = keyboardTarget != null, enter = fadeIn(tween(160)), exit = fadeOut(tween(120))) {
+            keyboardTarget?.let { target ->
+                ChemistryKeyboard(
+                    kind = target.kind,
+                    onInsert = { text -> updateKeyboard { it + text } },
+                    onDelete = { updateKeyboard { it.dropLast(1) } },
+                    onClear = { updateKeyboard { "" } },
+                    onDone = { keyboardTarget = null; focus.clearFocus(); keyboard?.hide() },
+                )
+            }
+        }
     }
 }
 
@@ -376,18 +430,22 @@ private fun ConversionRequirementInput(
     requirement: PhysicalMath.ConversionInputRequirement,
     values: Map<String, String>,
     busy: Boolean,
+    onKeyboardFocus: (String, InputKind, String, (String) -> Unit) -> Unit,
     onValue: (String, String) -> Unit,
 ) {
     val value = values[requirement.key] ?: requirement.defaultValue
     val unit = requirement.unitKey?.let { values[it] ?: requirement.defaultUnit }
+    val commit: (String) -> Unit = { onValue(requirement.key, it.take(100)) }
     OutlinedTextField(
         value = value,
-        onValueChange = { onValue(requirement.key, it.take(100)) },
+        onValueChange = commit,
         label = { Text(requirement.label) },
         supportingText = requirement.hint.takeIf { it.isNotBlank() }?.let { hint -> { Text(hint) } },
         enabled = !busy,
         singleLine = true,
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier.fillMaxWidth().onFocusChanged {
+            if (it.isFocused && !busy) onKeyboardFocus(requirement.key, InputKind.NUMBER, value, commit)
+        },
         shape = MaterialTheme.shapes.medium,
         trailingIcon = {
             if (requirement.unitKey != null && requirement.choices.isNotEmpty()) {
@@ -399,7 +457,11 @@ private fun ConversionRequirementInput(
 
 @Composable
 private fun InputField(field: FieldSpec, value: String, busy: Boolean, toolId: String, calculated: Boolean, enabled: Boolean,
-    unitSelector: (@Composable () -> Unit)?, onPreset: (ReferenceEntry) -> Unit, onChange: (String) -> Unit) {
+    unitSelector: (@Composable () -> Unit)?,
+    onKeyboardFocus: (String, InputKind, String, (String) -> Unit) -> Unit,
+    onPreset: (ReferenceEntry) -> Unit,
+    onChange: (String) -> Unit,
+) {
     if (field.choices.isNotEmpty()) {
         var expanded by remember { mutableStateOf(false) }
         ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { if (!busy) expanded = !expanded }) {
@@ -425,10 +487,15 @@ private fun InputField(field: FieldSpec, value: String, busy: Boolean, toolId: S
         var constantMenu by remember { mutableStateOf(false) }
         val constants = ReferenceData.entries.filter { it.toolId == toolId && it.fieldKey == field.key }
         Column {
-            OutlinedTextField(if (calculated) "" else value, { onChange(it.take(4000)) }, label = { LatexText(field.label) },
+            val commit: (String) -> Unit = { onChange(it.take(4000)) }
+            OutlinedTextField(if (calculated) "" else value, commit, label = { LatexText(field.label) },
                 enabled = !busy && enabled && (!calculated || unitSelector != null), readOnly = calculated,
                 placeholder = if (calculated) {{ Text("由其他已知量求解") }} else null,
-                modifier = Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.medium, minLines = if (field.multiline) 3 else 1,
+                modifier = Modifier.fillMaxWidth().onFocusChanged {
+                    if (it.isFocused && !busy && enabled && !calculated) {
+                        onKeyboardFocus(field.key, field.inputKind, value, commit)
+                    }
+                }, shape = MaterialTheme.shapes.medium, minLines = if (field.multiline) 3 else 1,
                 maxLines = if (field.multiline) 8 else 1, singleLine = !field.multiline,
                 supportingText = if (field.hint.isNotBlank()) {{ LatexText(field.hint) }} else null,
                 trailingIcon = unitSelector ?: if (constants.isNotEmpty()) {{ TextButton(onClick = { constantMenu = true }) { Text("引用") } }} else null)

@@ -43,6 +43,18 @@ class WorkflowTest {
         compose.waitUntil(10000) { compose.onAllNodesWithText("未知元素", substring = true).fetchSemanticsNodes().isNotEmpty() }
     }
 
+    @Test fun calculatorFieldsUseTheDedicatedChemistryKeyboard() {
+        compose.onNodeWithText("解析一个化学式  →").performClick()
+        compose.onNodeWithText("化学式", substring = false).performClick()
+        compose.onNodeWithText("化学式键盘", substring = false).assertExists()
+        compose.onNodeWithText("清空", substring = false).performClick()
+        compose.onNodeWithText("Na", substring = false).performClick()
+        compose.onNodeWithText("Cl", substring = false).performClick()
+        compose.onNode(hasText("NaCl", substring = false) and hasSetTextAction()).assertExists()
+        compose.onNodeWithText("隐藏", substring = false).performClick()
+        compose.onNodeWithText("化学式键盘", substring = false).assertDoesNotExist()
+    }
+
     @Test fun switchingTabsPreservesAnUnsubmittedCalculation() {
         compose.onNodeWithText("解析一个化学式  →").performClick()
         compose.onNodeWithText("化学式", substring = false).performTextReplacement("NaCl")

@@ -117,7 +117,7 @@ object StructureTools {
         },
         ToolDefinition("unsaturation", "不饱和度 DBE", "由 CHNXO/S 化学式计算环与 π 键当量", ToolCategory.STRUCTURE,
             "DBE = (2C + 2 + N − H − X)/2，X = F + Cl + Br + I",
-            listOf(FieldSpec("formula", "分子式", "C6H6", "例如 C6H6、C2H3Cl、C8H10N4O2")),
+            listOf(FieldSpec("formula", "分子式", "C6H6", "例如 C6H6、C2H3Cl、C8H10N4O2", inputKind = InputKind.CHEMICAL_FORMULA)),
         ) { input ->
             val formula = (input["formula"] ?: "C6H6").trim()
             val parsed = FormulaParser.parse(formula)

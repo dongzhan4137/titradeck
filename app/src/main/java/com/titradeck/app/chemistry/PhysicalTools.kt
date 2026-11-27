@@ -304,7 +304,7 @@ object PhysicalTools {
     }
 
     private fun hessTool() = ToolDefinition("hess", "盖斯定律焓变叠加", "对已知反应乘系数或反向，叠加反应焓", ToolCategory.PHYSICAL, "ΔH目标 = Σ λᵢΔHᵢ",
-        listOf(FieldSpec("reactions", "每行：反应说明 | 乘数 | ΔH", "C + O2 → CO2 | 1 | -393.5\nCO + 0.5O2 → CO2 | -1 | -283.0", "负乘数表示逆反应；ΔH 对应该行反应式的一次化学计量过程", multiline = true, unitKey = "enthalpyUnit"), select("enthalpyUnit", "焓变单位", "kJ", "J" to "J", "kJ" to "kJ", "kcal" to "kcal"))) { input ->
+        listOf(FieldSpec("reactions", "每行：反应说明 | 乘数 | ΔH", "C + O2 → CO2 | 1 | -393.5\nCO + 0.5O2 → CO2 | -1 | -283.0", "负乘数表示逆反应；ΔH 对应该行反应式的一次化学计量过程", multiline = true, unitKey = "enthalpyUnit", inputKind = InputKind.CHEMICAL_EQUATION), select("enthalpyUnit", "焓变单位", "kJ", "J" to "J", "kJ" to "kJ", "kcal" to "kcal"))) { input ->
         val enthalpyUnit = unit(input, "enthalpyUnit", "kJ"); val enthalpyFactor = factor(enthalpyFactors, enthalpyUnit)
         val text = s(input, "reactions"); require(text.length <= 12000) { "输入过长，请限制为 50 条以内的反应。" }
         val lines = text.lineSequence().filter { it.isNotBlank() }.toList(); require(lines.size in 1..50) { "请输入 1–50 条已知反应。" }
