@@ -25,6 +25,17 @@ class ReactionEngineTest {
         assertEquals("aq", FormulaParser.parse("Fe^2+(aq)").state)
     }
 
+    @Test fun unicodeSubscriptsRemainAtomCountsBeforePlainChargeSigns() {
+        val oxygen = FormulaParser.parse("O₂+")
+        assertEquals(mapOf("O" to 2), oxygen.composition)
+        assertEquals(1, oxygen.charge)
+        assertEquals("O₂⁺", displayChemicalFormula(oxygen.normalizedFormula))
+
+        val grouped = FormulaParser.parse("[NH₄]₂+")
+        assertEquals(mapOf("N" to 2, "H" to 8), grouped.composition)
+        assertEquals(1, grouped.charge)
+    }
+
     @Test fun invalidFormulasAreRejectedWithoutPartialResults() {
         listOf("", "Xx2", "H0", "H02", "Mg(OH", "Mg(OH]", "()", "CuSO4··5H2O", "H999999999999", "h2O", "Na^0+").forEach { input ->
             assertThrows("Input: $input", IllegalArgumentException::class.java) { FormulaParser.parse(input) }
@@ -43,6 +54,13 @@ class ReactionEngineTest {
         assertEquals(listOf(1, 5, 8, 1, 5, 4), redox.coefficients)
         assertEquals(listOf(1, 1, 1), EquationBalancer.balance("Fe^2+ -> Fe^3+ + e^-").coefficients)
         assertEquals(listOf(1, 1, 1, 1), EquationBalancer.balance("NH4+ + OH- -> NH3 + H2O").coefficients)
+    }
+
+    @Test fun balancesPlainPositiveChargesWithCaseInsensitivePhaseSuffixes() {
+        val equation = EquationBalancer.balance("Fe2+ (AQ) -> Fe3+(aQ) + e^-")
+        assertEquals(listOf(1, 1, 1), equation.coefficients)
+        assertEquals("Fe²⁺(aq) → Fe³⁺(aq) + e⁻", displayChemicalEquation(equation))
+        assertEquals(listOf(2, 1, 2, 1), EquationBalancer.balance("H2 + (S)O2 -> H2O + S").coefficients)
     }
 
     @Test fun impossibleAndAmbiguousSystemsAreNotInvented() {
@@ -84,6 +102,23 @@ class ReactionEngineTest {
         assertEquals(50.0, result.rows.single { it.label.contains("产率") }.value.toDouble(), 1e-9)
         assertEquals(44.82794, result.rows.single { it.label.startsWith("H₂(g)") && it.unit == "L" }.value.toDouble(), 0.001)
         assertTrue(result.steps.any { it.contains("6.02214076") })
+    }
+
+    @Test fun stoichiometryUsesVolumesOnlyForGasOrUnspecifiedPhases() {
+        val tool = ReactionTools.tools.single { it.id == "stoichiometry" }
+        val inputs = mapOf("equation" to "H2(g) + O2 -> H2O(l)", "amounts" to "H2: 2 L\nO2: 1 L")
+        val result = tool.calculate(inputs)
+        assertEquals(2.0, result.rows.single { it.label.startsWith("H₂(g)") && it.unit == "L" }.value.toDouble(), 1e-9)
+        assertEquals(1.0, result.rows.single { it.label.startsWith("O₂") && it.unit == "L" }.value.toDouble(), 1e-9)
+
+        val invalidInput = assertThrows(IllegalArgumentException::class.java) {
+            tool.calculate(inputs + ("equation" to "H2(g) + O2(l) -> H2O(l)"))
+        }
+        assertTrue(invalidInput.message.orEmpty().contains("相态"))
+        val invalidYield = assertThrows(IllegalArgumentException::class.java) {
+            tool.calculate(inputs + mapOf("actualProduct" to "H2O", "actualAmount" to "1 mL"))
+        }
+        assertTrue(invalidYield.message.orEmpty().contains("相态"))
     }
 
     @Test fun chemicalDisplayPreservesCoefficientsAndFormatsCharges() {

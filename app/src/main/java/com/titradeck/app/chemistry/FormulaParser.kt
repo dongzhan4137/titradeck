@@ -18,10 +18,6 @@ object FormulaParser {
         require(input.isNotBlank()) { "请输入化学式" }
         require(input.length <= 256) { "化学式最多 256 个字符" }
         var formula = input.filterNot(Char::isWhitespace).replace('−', '-').replace('·', '.').replace('•', '.')
-        formula = formula.map { character ->
-            val digit = subscriptDigits.indexOf(character)
-            if (digit >= 0) ('0'.code + digit).toChar() else character
-        }.joinToString("")
         val stateMatch = Regex("\\((aq|s|l|g)\\)$", RegexOption.IGNORE_CASE).find(formula)
         val state = stateMatch?.groupValues?.get(1)?.lowercase()
         if (stateMatch != null) formula = formula.substring(0, stateMatch.range.first)
@@ -41,7 +37,7 @@ object FormulaParser {
         } else if (formula.endsWith('+') || formula.endsWith('-')) {
             val sign = if (formula.last() == '+') 1 else -1
             formula = formula.dropLast(1)
-            // Fe3+ and [Fe(CN)6]3- are conventional shorthand. NH4+ keeps the H subscript.
+            // Fe3+ and [Fe(CN)6]3- use plain digits for charge. Unicode subscripts count atoms.
             val magnitude = Regex("^([A-Z][a-z]?)(\\d+)$").matchEntire(formula)
             val bracketMagnitude = Regex("^(.*])(\\d+)$").matchEntire(formula)
             val shorthand = magnitude ?: bracketMagnitude
@@ -56,6 +52,10 @@ object FormulaParser {
             return ParsedFormula("e^-", emptyMap(), 0.0, -1, state)
         }
         require(formula.isNotEmpty()) { "电荷前缺少化学式" }
+        formula = formula.map { character ->
+            val digit = subscriptDigits.indexOf(character)
+            if (digit >= 0) ('0'.code + digit).toChar() else character
+        }.joinToString("")
         val parts = formula.split('.')
         require(parts.none(String::isEmpty)) { "晶体水分隔符两侧都需要化学式" }
         val composition = linkedMapOf<String, Int>()

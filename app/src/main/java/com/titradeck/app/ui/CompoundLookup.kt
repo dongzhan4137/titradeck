@@ -11,6 +11,8 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -22,6 +24,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import com.titradeck.app.chemistry.MoleculeModel
 import com.titradeck.app.chemistry.ResultRow
@@ -123,6 +126,15 @@ fun CompoundLookupScreen(onBack: () -> Unit) {
         }
     }
 
+    fun submitSearch() {
+        if (busy || query.isBlank()) return
+        val submittedQuery = query
+        val submittedMode = mode
+        focus.clearFocus()
+        keyboard?.hide()
+        requestResults(newSearch = true) { repository.search(submittedQuery, submittedMode) }
+    }
+
     Column(Modifier.imePadding()) {
         TextButton(onClick = onBack) { Text("‹  返回") }
         LazyColumn(state = listState, modifier = Modifier.testTag("compound_lookup_list"), contentPadding = PaddingValues(20.dp),
@@ -142,16 +154,14 @@ fun CompoundLookupScreen(onBack: () -> Unit) {
                         "cid" -> "例如 702"
                         "smiles" -> "例如 CCO"
                         else -> "例如 乙醇 或 ethanol"
-                    }) }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+                    }) }, modifier = Modifier.fillMaxWidth(), singleLine = true,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                    keyboardActions = KeyboardActions(onSearch = { submitSearch() }))
             }
             item {
-                Button(enabled = !busy && query.isNotBlank(), modifier = Modifier.fillMaxWidth(), onClick = {
-                    val submittedQuery = query
-                    val submittedMode = mode
-                    focus.clearFocus()
-                    keyboard?.hide()
-                    requestResults(newSearch = true) { repository.search(submittedQuery, submittedMode) }
-                }) { Text(if (busy) "正在查询…" else "查询 PubChem") }
+                Button(enabled = !busy && query.isNotBlank(), modifier = Modifier.fillMaxWidth(), onClick = ::submitSearch) {
+                    Text(if (busy) "正在查询…" else "查询 PubChem")
+                }
             }
             if (showCandidates) {
                 item(key = "compound_page") {
