@@ -23,6 +23,8 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import com.titradeck.app.chemistry.FieldSpec
 import com.titradeck.app.chemistry.InputKind
@@ -32,7 +34,7 @@ import com.titradeck.app.chemistry.stoichiometryAmountSeparator
 
 private const val defaultUnit = "g"
 private val quantityParts = Regex("^(.*?)\\s*(${StoichiometryUnits.pattern})$")
-private typealias KeyboardFocusHandler = (String, InputKind, String, (String) -> Unit) -> Unit
+private typealias KeyboardFocusHandler = (String, InputKind, String, Int, Int, (String) -> Unit) -> Unit
 
 private data class Quantity(val number: String = "", val unit: String = defaultUnit) {
     fun encode(): String = "$number $unit".trim()
@@ -59,14 +61,17 @@ internal fun StoichiometryQuantityInput(
     value: String,
     enabled: Boolean,
     onKeyboardFocus: KeyboardFocusHandler,
+    customKeyboardActive: (String) -> Boolean,
+    keyboardSelection: (String) -> TextRange?,
+    onSelectionChanged: (String, TextRange) -> Unit,
     onChange: (String) -> Unit,
 ) {
     if (field.key == "amounts") {
-        KnownAmountInputs(field.label, value, enabled, onKeyboardFocus, onChange)
+        KnownAmountInputs(field.label, value, enabled, onKeyboardFocus, customKeyboardActive, keyboardSelection, onSelectionChanged, onChange)
     } else {
         var blankUnit by rememberSaveable { mutableStateOf(defaultUnit) }
         val quantity = decodeQuantity(value, blankUnit)
-        QuantityInput(field.key, field.label, quantity, enabled, Modifier.fillMaxWidth(), onKeyboardFocus) { updated ->
+        QuantityInput(field.key, field.label, quantity, enabled, Modifier.fillMaxWidth(), onKeyboardFocus, customKeyboardActive, keyboardSelection, onSelectionChanged) { updated ->
             blankUnit = updated.unit
             val encoded = if (updated.number.isBlank()) "" else updated.encode()
             if (encoded != value) onChange(encoded)
@@ -75,7 +80,7 @@ internal fun StoichiometryQuantityInput(
 }
 
 @Composable
-private fun KnownAmountInputs(label: String, value: String, enabled: Boolean, onKeyboardFocus: KeyboardFocusHandler, onChange: (String) -> Unit) {
+private fun KnownAmountInputs(label: String, value: String, enabled: Boolean, onKeyboardFocus: KeyboardFocusHandler, customKeyboardActive: (String) -> Boolean, keyboardSelection: (String) -> TextRange?, onSelectionChanged: (String, TextRange) -> Unit, onChange: (String) -> Unit) {
     val amounts = remember(value) {
         value.lineSequence().filter(String::isNotBlank).map(::decodeKnownAmount).toList()
             .ifEmpty { listOf(KnownAmount()) }
@@ -93,29 +98,33 @@ private fun KnownAmountInputs(label: String, value: String, enabled: Boolean, on
             val updateFormula by rememberUpdatedState<(String) -> Unit> { formula ->
                 updateAmount(index, latestAmount.copy(formula = formula))
             }
+            val formulaId = "amounts:$index:formula"
+            val formulaValue = TextFieldValue(amount.formula, keyboardSelection(formulaId) ?: TextRange(amount.formula.length))
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 OutlinedTextField(
-                    value = amount.formula,
-                    onValueChange = { formula ->
-                        if (formula.none { it in "\r\n:：=" }) {
-                            updateAmount(index, amount.copy(formula = formula.take(4000)))
+                    value = formulaValue,
+                    onValueChange = { changed ->
+                        if (changed.text.none { it in "\r\n:：=" }) {
+                            updateAmount(index, amount.copy(formula = changed.text.take(4000)))
+                            onSelectionChanged(formulaId, changed.selection)
                         }
                     },
                     modifier = Modifier.weight(1f).onFocusChanged {
                         if (it.isFocused && enabled) {
-                            onKeyboardFocus("amounts:$index:formula", InputKind.CHEMICAL_FORMULA, amount.formula) { formula -> updateFormula(formula) }
+                            onKeyboardFocus(formulaId, InputKind.CHEMICAL_FORMULA, amount.formula, formulaValue.selection.start, formulaValue.selection.end) { formula -> updateFormula(formula) }
                         }
                     },
                     enabled = enabled,
+                    readOnly = customKeyboardActive(formulaId),
                     label = { Text("化学式", maxLines = 1) },
                     singleLine = true,
                     shape = MaterialTheme.shapes.medium,
                 )
-                QuantityInput("amounts:$index:quantity", "数值", amount.quantity, enabled, Modifier.weight(2f), onKeyboardFocus) { quantity ->
+                QuantityInput("amounts:$index:quantity", "数值", amount.quantity, enabled, Modifier.weight(2f), onKeyboardFocus, customKeyboardActive, keyboardSelection, onSelectionChanged) { quantity ->
                     updateAmount(index, amount.copy(quantity = quantity))
                 }
                 IconButton(
@@ -144,23 +153,29 @@ private fun QuantityInput(
     enabled: Boolean,
     modifier: Modifier,
     onKeyboardFocus: KeyboardFocusHandler,
+    customKeyboardActive: (String) -> Boolean,
+    keyboardSelection: (String) -> TextRange?,
+    onSelectionChanged: (String, TextRange) -> Unit,
     onChange: (Quantity) -> Unit,
 ) {
     val latestQuantity by rememberUpdatedState(quantity)
     val updateNumber by rememberUpdatedState<(String) -> Unit> { number -> onChange(latestQuantity.copy(number = number)) }
+    val textValue = TextFieldValue(quantity.number, keyboardSelection(id) ?: TextRange(quantity.number.length))
     OutlinedTextField(
-        value = quantity.number,
-        onValueChange = { number ->
-            if (number.all { it in "0123456789.+-eE" }) {
-                onChange(quantity.copy(number = number.take(4000)))
+        value = textValue,
+        onValueChange = { changed ->
+            if (changed.text.all { it in "0123456789.+-eE" }) {
+                onChange(quantity.copy(number = changed.text.take(4000)))
+                onSelectionChanged(id, changed.selection)
             }
         },
         modifier = modifier.onFocusChanged {
             if (it.isFocused && enabled) {
-                onKeyboardFocus(id, InputKind.NUMBER, quantity.number) { number -> updateNumber(number) }
+                onKeyboardFocus(id, InputKind.NUMBER, quantity.number, textValue.selection.start, textValue.selection.end) { number -> updateNumber(number) }
             }
         },
         enabled = enabled,
+        readOnly = customKeyboardActive(id),
         label = { Text(label) },
         singleLine = true,
         shape = MaterialTheme.shapes.medium,

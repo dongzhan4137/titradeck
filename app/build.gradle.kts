@@ -23,8 +23,8 @@ android {
         applicationId = "com.titradeck.app"
         minSdk = 26
         targetSdk = 36
-        versionCode = 17
-        versionName = "1.0.4-alpha.6"
+        versionCode = 18
+        versionName = "1.0.4-alpha.7"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 

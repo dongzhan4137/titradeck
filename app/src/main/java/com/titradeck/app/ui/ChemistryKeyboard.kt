@@ -15,6 +15,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -26,6 +27,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -59,9 +62,7 @@ internal fun ChemistryKeyboard(
     kind: InputKind,
     onInsert: (String) -> Unit,
     onDelete: () -> Unit,
-    onClear: () -> Unit,
     onNewline: () -> Unit,
-    onDone: () -> Unit,
     onSystemKeyboard: () -> Unit,
 ) {
     var page by remember(kind) {
@@ -79,13 +80,14 @@ internal fun ChemistryKeyboard(
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                PageButton("数字/符号", page == KeyboardPage.SYMBOLS, Modifier.weight(1f)) { page = KeyboardPage.SYMBOLS }
-                PageButton("元素", page == KeyboardPage.ELEMENTS, Modifier.weight(1f)) { page = KeyboardPage.ELEMENTS }
-                PageButton("字母", page == KeyboardPage.LETTERS, Modifier.weight(1f)) { page = KeyboardPage.LETTERS }
-                PageButton("系统键盘", false, Modifier.weight(1f), onSystemKeyboard)
+                PageButton("123", "数字与符号", page == KeyboardPage.SYMBOLS, Modifier.weight(1f)) { page = KeyboardPage.SYMBOLS }
+                PageButton("H", "元素符号", page == KeyboardPage.ELEMENTS, Modifier.weight(1f)) { page = KeyboardPage.ELEMENTS }
+                PageButton("ABC", "字母键盘", page == KeyboardPage.LETTERS, Modifier.weight(1f)) { page = KeyboardPage.LETTERS }
+                PageButton("⌨", "系统键盘", false, Modifier.weight(1f), onSystemKeyboard)
             }
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant, thickness = 1.dp)
             Box(
-                modifier = Modifier.fillMaxWidth().height(220.dp),
+                modifier = Modifier.fillMaxWidth().height(190.dp),
                 contentAlignment = Alignment.TopCenter,
             ) {
                 when (page) {
@@ -94,12 +96,11 @@ internal fun ChemistryKeyboard(
                     KeyboardPage.LETTERS -> LettersPage(shift, { shift = !shift }, onInsert)
                 }
             }
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant, thickness = 1.dp)
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                KeyButton("空格", Modifier.weight(2f).height(44.dp)) { onInsert(" ") }
-                KeyButton("删除", Modifier.weight(1f).height(44.dp)) { onDelete() }
-                KeyButton("换行", Modifier.weight(1f).height(44.dp)) { onNewline() }
-                KeyButton("清空", Modifier.weight(1f).height(44.dp)) { onClear() }
-                KeyButton("完成", Modifier.weight(1f).height(44.dp)) { onDone() }
+                KeyButton("␠", Modifier.weight(2f).height(38.dp), "空格") { onInsert(" ") }
+                KeyButton("⌫", Modifier.weight(1f).height(38.dp), "删除") { onDelete() }
+                KeyButton("↵", Modifier.weight(1f).height(38.dp), "换行") { onNewline() }
             }
         }
     }
@@ -116,9 +117,9 @@ private fun SymbolsPage(
         listOf("⁰", "¹", "²", "³", "⁴", "⁵", "⁶", "⁷", "⁸", "⁹"),
         listOf("₀", "₁", "₂", "₃", "₄", "₅", "₆", "₇", "₈", "₉"),
         if (kind == InputKind.CHEMICAL_EQUATION) {
-            listOf("(aq)", "(s)", "(g)", "(l)", "→", "⟶", "⇌", "⟷", "⟺", ":")
+            listOf("(aq)", "(s)", "(g)", "(l)", "→", "⇌", ":")
         } else {
-            listOf("(aq)", "(s)", "(g)", "(l)", "→", "⟶", "⟷", "⟺", "[", "]")
+            listOf("(aq)", "(s)", "(g)", "(l)", "→", "[", "]")
         },
     )
     Column(
@@ -163,21 +164,21 @@ private fun KeyRow(keys: List<String>, onKey: (String) -> Unit) {
 }
 
 @Composable
-private fun PageButton(label: String, selected: Boolean, modifier: Modifier, onClick: () -> Unit) {
+private fun PageButton(label: String, description: String, selected: Boolean, modifier: Modifier, onClick: () -> Unit) {
     Button(
         onClick = onClick,
-        modifier = modifier.height(36.dp),
+        modifier = modifier.height(34.dp).semantics { contentDescription = description },
         contentPadding = PaddingValues(horizontal = 2.dp),
         colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = Color.Black),
         border = if (selected) BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null,
-    ) { Text(label, fontSize = 12.sp, maxLines = 1) }
+    ) { Text(label, fontSize = 13.sp, maxLines = 1) }
 }
 
 @Composable
-private fun KeyButton(label: String, modifier: Modifier, onClick: () -> Unit) {
+private fun KeyButton(label: String, modifier: Modifier, description: String? = null, onClick: () -> Unit) {
     Button(
         onClick = onClick,
-        modifier = modifier.heightIn(min = 40.dp),
+        modifier = modifier.heightIn(min = 36.dp).then(if (description == null) Modifier else Modifier.semantics { contentDescription = description }),
         contentPadding = PaddingValues(horizontal = 1.dp),
         colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = Color.Black),
     ) { Text(label, fontSize = 13.sp, textAlign = TextAlign.Center, maxLines = 1) }

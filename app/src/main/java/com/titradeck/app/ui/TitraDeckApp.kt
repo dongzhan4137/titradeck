@@ -38,6 +38,8 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -57,6 +59,8 @@ private data class KeyboardTarget(
     val id: String,
     val kind: InputKind,
     val text: String,
+    val selectionStart: Int,
+    val selectionEnd: Int,
     val commit: (String) -> Unit,
 )
 
@@ -289,19 +293,48 @@ private fun CalculatorScreen(tool: ToolDefinition, values: Map<String, String>, 
     val fieldsByKey = remember(tool) { tool.fields.associateBy { it.key } }
     var keyboardTarget by remember(tool) { mutableStateOf<KeyboardTarget?>(null) }
     var systemKeyboardVisible by remember(tool) { mutableStateOf(false) }
-    fun showKeyboard(id: String, kind: InputKind, text: String, commit: (String) -> Unit) {
-        keyboardTarget = KeyboardTarget(id, kind, text, commit)
+    fun showKeyboard(id: String, kind: InputKind, text: String, selectionStart: Int, selectionEnd: Int, commit: (String) -> Unit) {
+        keyboardTarget = KeyboardTarget(id, kind, text, selectionStart.coerceIn(0, text.length), selectionEnd.coerceIn(0, text.length), commit)
         systemKeyboardVisible = false
         keyboard?.hide()
     }
     fun syncKeyboard(id: String, text: String) {
-        if (keyboardTarget?.id == id) keyboardTarget = keyboardTarget?.copy(text = text)
+        if (keyboardTarget?.id == id) {
+            val target = keyboardTarget ?: return
+            val cursor = target.selectionStart.coerceIn(0, text.length)
+            keyboardTarget = target.copy(text = text, selectionStart = cursor, selectionEnd = cursor)
+        }
     }
-    fun updateKeyboard(transform: (String) -> String) {
+    fun syncKeyboardSelection(id: String, selection: TextRange) {
+        if (keyboardTarget?.id == id) {
+            val target = keyboardTarget ?: return
+            keyboardTarget = target.copy(selectionStart = selection.start, selectionEnd = selection.end)
+        }
+    }
+    fun replaceKeyboardSelection(replacement: String) {
         val target = keyboardTarget ?: return
-        val text = transform(target.text)
+        val start = minOf(target.selectionStart, target.selectionEnd).coerceIn(0, target.text.length)
+        val end = maxOf(target.selectionStart, target.selectionEnd).coerceIn(start, target.text.length)
+        val text = target.text.substring(0, start) + replacement + target.text.substring(end)
+        val cursor = start + replacement.length
         target.commit(text)
-        keyboardTarget = target.copy(text = text)
+        keyboardTarget = target.copy(text = text, selectionStart = cursor, selectionEnd = cursor)
+    }
+    fun deleteKeyboardSelection() {
+        val target = keyboardTarget ?: return
+        val start = minOf(target.selectionStart, target.selectionEnd).coerceIn(0, target.text.length)
+        val end = maxOf(target.selectionStart, target.selectionEnd).coerceIn(start, target.text.length)
+        if (start != end) {
+            replaceKeyboardSelection("")
+        } else if (start > 0) {
+            val previous = target.text.offsetByCodePoints(start, -1)
+            val nextText = target.text.removeRange(previous, start)
+            target.commit(nextText)
+            keyboardTarget = target.copy(text = nextText, selectionStart = previous, selectionEnd = previous)
+        }
+    }
+    LaunchedEffect(systemKeyboardVisible, keyboardTarget?.id) {
+        if (systemKeyboardVisible && keyboardTarget != null) keyboard?.show() else keyboard?.hide()
     }
     val inputFields = remember(tool) {
         // Only hide a referenced field when it is a real choice list. This keeps
@@ -351,7 +384,10 @@ private fun CalculatorScreen(tool: ToolDefinition, values: Map<String, String>, 
                         field,
                         value,
                         !busy,
-                        onKeyboardFocus = { id, kind, text, commit -> showKeyboard(id, kind, text, commit) },
+                        onKeyboardFocus = { id, kind, text, start, end, commit -> showKeyboard(id, kind, text, start, end, commit) },
+                        customKeyboardActive = { id -> keyboardTarget?.id == id && !systemKeyboardVisible },
+                        keyboardSelection = { id -> keyboardTarget?.takeIf { it.id == id }?.let { TextRange(it.selectionStart, it.selectionEnd) } },
+                        onSelectionChanged = { id, selection -> syncKeyboardSelection(id, selection) },
                     ) { updated ->
                         onValue(field.key, updated)
                         syncKeyboard(field.key, updated)
@@ -362,6 +398,9 @@ private fun CalculatorScreen(tool: ToolDefinition, values: Map<String, String>, 
                     InputField(field, value, busy, tool.id, field.key == values["unknown"],
                         enabled = tool.id != "unit_converter" || field.key != "molarMass" ||
                             PhysicalMath.hasDifferentDimensions(values["fromUnit"].orEmpty(), values["toUnit"].orEmpty()),
+                        customKeyboardActive = keyboardTarget?.id == field.key && !systemKeyboardVisible,
+                        keyboardSelection = keyboardTarget?.takeIf { it.id == field.key }?.let { TextRange(it.selectionStart, it.selectionEnd) },
+                        onSelectionChanged = { selection -> syncKeyboardSelection(field.key, selection) },
                         unitSelector = unit?.let { unitField ->
                             {
                                 val label = if (unitField.key == "tempUnit") "${field.label}单位" else unitField.label
@@ -370,7 +409,7 @@ private fun CalculatorScreen(tool: ToolDefinition, values: Map<String, String>, 
                                 }
                             }
                         },
-                        onKeyboardFocus = { id, kind, text, commit -> showKeyboard(id, kind, text, commit) },
+                        onKeyboardFocus = { id, kind, text, start, end, commit -> showKeyboard(id, kind, text, start, end, commit) },
                         onPreset = { entry ->
                             (entry.inputOverrides + (field.key to entry.value.toString())).forEach { (key, value) -> onValue(key, value) }
                         }) { updated ->
@@ -385,7 +424,10 @@ private fun CalculatorScreen(tool: ToolDefinition, values: Map<String, String>, 
                         requirement,
                         values,
                         busy,
-                        onKeyboardFocus = { id, kind, text, commit -> showKeyboard(id, kind, text, commit) },
+                        customKeyboardActive = keyboardTarget?.id == requirement.key && !systemKeyboardVisible,
+                        keyboardSelection = keyboardTarget?.takeIf { it.id == requirement.key }?.let { TextRange(it.selectionStart, it.selectionEnd) },
+                        onSelectionChanged = { selection -> syncKeyboardSelection(requirement.key, selection) },
+                        onKeyboardFocus = { id, kind, text, start, end, commit -> showKeyboard(id, kind, text, start, end, commit) },
                         onValue = { key, updated ->
                             onValue(key, updated)
                             if (key == requirement.key) syncKeyboard(requirement.key, updated)
@@ -417,12 +459,10 @@ private fun CalculatorScreen(tool: ToolDefinition, values: Map<String, String>, 
             keyboardTarget?.let { target ->
                 ChemistryKeyboard(
                     kind = target.kind,
-                    onInsert = { text -> updateKeyboard { it + text } },
-                    onDelete = { updateKeyboard { it.dropLast(1) } },
-                    onClear = { updateKeyboard { "" } },
-                    onNewline = { updateKeyboard { it + "\n" } },
-                    onDone = { keyboardTarget = null; systemKeyboardVisible = false; focus.clearFocus(); keyboard?.hide() },
-                    onSystemKeyboard = { systemKeyboardVisible = true; keyboard?.show() },
+                    onInsert = { text -> replaceKeyboardSelection(text) },
+                    onDelete = { deleteKeyboardSelection() },
+                    onNewline = { replaceKeyboardSelection("\n") },
+                    onSystemKeyboard = { systemKeyboardVisible = true },
                 )
             }
         }
@@ -433,7 +473,14 @@ private fun CalculatorScreen(tool: ToolDefinition, values: Map<String, String>, 
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text("系统键盘", style = MaterialTheme.typography.labelLarge, modifier = Modifier.weight(1f))
-                    TextButton(onClick = { systemKeyboardVisible = false; keyboard?.hide() }) { Text("切换自带键盘") }
+                    IconButton(
+                        onClick = { systemKeyboardVisible = false; keyboard?.hide() },
+                        modifier = Modifier.semantics { contentDescription = "切换自带键盘" },
+                    ) { Text("⌨") }
+                    IconButton(
+                        onClick = { keyboardTarget = null; systemKeyboardVisible = false; focus.clearFocus(); keyboard?.hide() },
+                        modifier = Modifier.semantics { contentDescription = "收起键盘" },
+                    ) { Text("⌄") }
                 }
             }
         }
@@ -445,23 +492,28 @@ private fun ConversionRequirementInput(
     requirement: PhysicalMath.ConversionInputRequirement,
     values: Map<String, String>,
     busy: Boolean,
-    onKeyboardFocus: (String, InputKind, String, (String) -> Unit) -> Unit,
+    customKeyboardActive: Boolean,
+    keyboardSelection: TextRange?,
+    onSelectionChanged: (TextRange) -> Unit,
+    onKeyboardFocus: (String, InputKind, String, Int, Int, (String) -> Unit) -> Unit,
     onValue: (String, String) -> Unit,
 ) {
     val value = values[requirement.key] ?: requirement.defaultValue
     val unit = requirement.unitKey?.let { values[it] ?: requirement.defaultUnit }
     val commit: (String) -> Unit = { onValue(requirement.key, it.take(100)) }
+    val textValue = TextFieldValue(value, keyboardSelection ?: TextRange(value.length))
     OutlinedTextField(
-        value = value,
-        onValueChange = commit,
+        value = textValue,
+        onValueChange = { changed -> onValue(requirement.key, changed.text.take(100)); onSelectionChanged(changed.selection) },
         label = { Text(requirement.label) },
         supportingText = requirement.hint.takeIf { it.isNotBlank() }?.let { hint -> { Text(hint) } },
         enabled = !busy,
         singleLine = true,
         modifier = Modifier.fillMaxWidth().onFocusChanged {
-            if (it.isFocused && !busy) onKeyboardFocus(requirement.key, InputKind.NUMBER, value, commit)
+            if (it.isFocused && !busy) onKeyboardFocus(requirement.key, InputKind.NUMBER, value, textValue.selection.start, textValue.selection.end, commit)
         },
         shape = MaterialTheme.shapes.medium,
+        readOnly = customKeyboardActive,
         trailingIcon = {
             if (requirement.unitKey != null && requirement.choices.isNotEmpty()) {
                 UnitDropdown(requirement.unitLabel, requirement.choices, unit.orEmpty(), !busy) { onValue(requirement.unitKey, it) }
@@ -472,8 +524,11 @@ private fun ConversionRequirementInput(
 
 @Composable
 private fun InputField(field: FieldSpec, value: String, busy: Boolean, toolId: String, calculated: Boolean, enabled: Boolean,
+    customKeyboardActive: Boolean,
+    keyboardSelection: TextRange?,
+    onSelectionChanged: (TextRange) -> Unit,
     unitSelector: (@Composable () -> Unit)?,
-    onKeyboardFocus: (String, InputKind, String, (String) -> Unit) -> Unit,
+    onKeyboardFocus: (String, InputKind, String, Int, Int, (String) -> Unit) -> Unit,
     onPreset: (ReferenceEntry) -> Unit,
     onChange: (String) -> Unit,
 ) {
@@ -503,12 +558,13 @@ private fun InputField(field: FieldSpec, value: String, busy: Boolean, toolId: S
         val constants = ReferenceData.entries.filter { it.toolId == toolId && it.fieldKey == field.key }
         Column {
             val commit: (String) -> Unit = { onChange(it.take(4000)) }
-            OutlinedTextField(if (calculated) "" else value, commit, label = { LatexText(field.label) },
-                enabled = !busy && enabled && (!calculated || unitSelector != null), readOnly = calculated,
+            val textValue = TextFieldValue(if (calculated) "" else value, keyboardSelection ?: TextRange(value.length))
+            OutlinedTextField(textValue, { changed -> commit(changed.text); onSelectionChanged(changed.selection) }, label = { LatexText(field.label) },
+                enabled = !busy && enabled && (!calculated || unitSelector != null), readOnly = calculated || customKeyboardActive,
                 placeholder = if (calculated) {{ Text("由其他已知量求解") }} else null,
                 modifier = Modifier.fillMaxWidth().onFocusChanged {
                     if (it.isFocused && !busy && enabled && !calculated) {
-                        onKeyboardFocus(field.key, field.inputKind, value, commit)
+                        onKeyboardFocus(field.key, field.inputKind, value, textValue.selection.start, textValue.selection.end, commit)
                     }
                 }, shape = MaterialTheme.shapes.medium, minLines = if (field.multiline) 3 else 1,
                 maxLines = if (field.multiline) 8 else 1, singleLine = !field.multiline,
