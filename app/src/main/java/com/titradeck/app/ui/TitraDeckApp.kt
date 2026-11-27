@@ -418,7 +418,9 @@ private fun CalculatorScreen(tool: ToolDefinition, values: Map<String, String>, 
                     onInsert = { text -> updateKeyboard { it + text } },
                     onDelete = { updateKeyboard { it.dropLast(1) } },
                     onClear = { updateKeyboard { "" } },
+                    onNewline = { updateKeyboard { it + "\n" } },
                     onDone = { keyboardTarget = null; focus.clearFocus(); keyboard?.hide() },
+                    onSystemKeyboard = { keyboardTarget = null; keyboard?.show() },
                 )
             }
         }
