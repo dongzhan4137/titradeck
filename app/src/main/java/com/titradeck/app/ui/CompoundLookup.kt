@@ -135,7 +135,7 @@ fun CompoundLookupScreen(onBack: () -> Unit) {
         requestResults(newSearch = true) { repository.search(submittedQuery, submittedMode) }
     }
 
-    Column(Modifier.imePadding()) {
+    Column(Modifier.fillMaxSize()) {
         TextButton(onClick = onBack) { Text("‹  返回") }
         LazyColumn(state = listState, modifier = Modifier.testTag("compound_lookup_list"), contentPadding = PaddingValues(20.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)) {

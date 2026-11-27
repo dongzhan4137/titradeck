@@ -288,8 +288,10 @@ private fun CalculatorScreen(tool: ToolDefinition, values: Map<String, String>, 
     val scope = rememberCoroutineScope()
     val fieldsByKey = remember(tool) { tool.fields.associateBy { it.key } }
     var keyboardTarget by remember(tool) { mutableStateOf<KeyboardTarget?>(null) }
+    var systemKeyboardVisible by remember(tool) { mutableStateOf(false) }
     fun showKeyboard(id: String, kind: InputKind, text: String, commit: (String) -> Unit) {
         keyboardTarget = KeyboardTarget(id, kind, text, commit)
+        systemKeyboardVisible = false
         keyboard?.hide()
     }
     fun syncKeyboard(id: String, text: String) {
@@ -317,11 +319,11 @@ private fun CalculatorScreen(tool: ToolDefinition, values: Map<String, String>, 
     }
     val resultIndex = 4 + inputFields.size + converterRequirements.size
     LaunchedEffect(result) { if (result != null) listState.animateScrollToItem(resultIndex) }
-    Column(Modifier.fillMaxSize().imePadding()) {
+    Column(Modifier.fillMaxSize()) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             TextButton(onClick = onBack) { Text("‹  返回") }
             Text(tool.category.label, Modifier.weight(1f), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            TextButton(onClick = { onReset(); scope.launch { listState.animateScrollToItem(0) } }, enabled = !busy) { Text("示例") }
+            TextButton(onClick = { keyboardTarget = null; systemKeyboardVisible = false; onReset(); scope.launch { listState.animateScrollToItem(0) } }, enabled = !busy) { Text("示例") }
         }
         LazyColumn(modifier = Modifier.weight(1f).testTag("calculator_list"), state = listState, contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
             item { ScreenHeading(tool.title, tool.subtitle) }
@@ -336,7 +338,7 @@ private fun CalculatorScreen(tool: ToolDefinition, values: Map<String, String>, 
                         onValueChange = {},
                         label = { Text("目标数值") },
                         placeholder = { Text("待计算") },
-                        modifier = Modifier.fillMaxWidth().onFocusChanged { if (it.isFocused) keyboardTarget = null },
+                        modifier = Modifier.fillMaxWidth().onFocusChanged { if (it.isFocused) { keyboardTarget = null; systemKeyboardVisible = false } },
                         shape = MaterialTheme.shapes.medium,
                         readOnly = true,
                         singleLine = true,
@@ -396,7 +398,7 @@ private fun CalculatorScreen(tool: ToolDefinition, values: Map<String, String>, 
                     if (error != null) Surface(color = MaterialTheme.colorScheme.errorContainer, shape = MaterialTheme.shapes.medium) {
                         Text(error, Modifier.padding(16.dp).fillMaxWidth(), color = MaterialTheme.colorScheme.onErrorContainer)
                     }
-                    Button(onClick = { focus.clearFocus(); keyboard?.hide(); onCalculate() }, enabled = !busy, modifier = Modifier.fillMaxWidth().heightIn(min = 54.dp)) {
+                    Button(onClick = { keyboardTarget = null; systemKeyboardVisible = false; focus.clearFocus(); keyboard?.hide(); onCalculate() }, enabled = !busy, modifier = Modifier.fillMaxWidth().heightIn(min = 54.dp)) {
                         if (busy) { CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp); Spacer(Modifier.width(12.dp)) }
                         Text(if (busy) "正在计算…" else "开始计算", style = MaterialTheme.typography.titleMedium)
                     }
@@ -411,7 +413,7 @@ private fun CalculatorScreen(tool: ToolDefinition, values: Map<String, String>, 
                 if (result == null) EmptyState("等待计算", "确认数值和单位，结果与推导过程将在这里显示。")
             }
         }
-        AnimatedVisibility(visible = keyboardTarget != null, enter = fadeIn(tween(160)), exit = fadeOut(tween(120))) {
+        AnimatedVisibility(visible = keyboardTarget != null && !systemKeyboardVisible, enter = fadeIn(tween(160)), exit = fadeOut(tween(120))) {
             keyboardTarget?.let { target ->
                 ChemistryKeyboard(
                     kind = target.kind,
@@ -419,9 +421,20 @@ private fun CalculatorScreen(tool: ToolDefinition, values: Map<String, String>, 
                     onDelete = { updateKeyboard { it.dropLast(1) } },
                     onClear = { updateKeyboard { "" } },
                     onNewline = { updateKeyboard { it + "\n" } },
-                    onDone = { keyboardTarget = null; focus.clearFocus(); keyboard?.hide() },
-                    onSystemKeyboard = { keyboardTarget = null; keyboard?.show() },
+                    onDone = { keyboardTarget = null; systemKeyboardVisible = false; focus.clearFocus(); keyboard?.hide() },
+                    onSystemKeyboard = { systemKeyboardVisible = true; keyboard?.show() },
                 )
+            }
+        }
+        AnimatedVisibility(visible = keyboardTarget != null && systemKeyboardVisible, enter = fadeIn(tween(120)), exit = fadeOut(tween(100))) {
+            Surface(color = MaterialTheme.colorScheme.surfaceContainer, tonalElevation = 2.dp) {
+                Row(
+                    Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text("系统键盘", style = MaterialTheme.typography.labelLarge, modifier = Modifier.weight(1f))
+                    TextButton(onClick = { systemKeyboardVisible = false; keyboard?.hide() }) { Text("切换自带键盘") }
+                }
             }
         }
     }

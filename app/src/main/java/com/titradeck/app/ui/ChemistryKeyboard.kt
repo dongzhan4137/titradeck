@@ -7,7 +7,9 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -93,11 +95,11 @@ internal fun ChemistryKeyboard(
                 }
             }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                KeyButton("空格", Modifier.weight(2f)) { onInsert(" ") }
-                KeyButton("删除", Modifier.weight(1f)) { onDelete() }
-                KeyButton("换行", Modifier.weight(1f)) { onNewline() }
-                KeyButton("清空", Modifier.weight(1f)) { onClear() }
-                KeyButton("完成", Modifier.weight(1f)) { onDone() }
+                KeyButton("空格", Modifier.weight(2f).height(44.dp)) { onInsert(" ") }
+                KeyButton("删除", Modifier.weight(1f).height(44.dp)) { onDelete() }
+                KeyButton("换行", Modifier.weight(1f).height(44.dp)) { onNewline() }
+                KeyButton("清空", Modifier.weight(1f).height(44.dp)) { onClear() }
+                KeyButton("完成", Modifier.weight(1f).height(44.dp)) { onDone() }
             }
         }
     }
@@ -114,9 +116,9 @@ private fun SymbolsPage(
         listOf("⁰", "¹", "²", "³", "⁴", "⁵", "⁶", "⁷", "⁸", "⁹"),
         listOf("₀", "₁", "₂", "₃", "₄", "₅", "₆", "₇", "₈", "₉"),
         if (kind == InputKind.CHEMICAL_EQUATION) {
-            listOf("(aq)", "(s)", "(g)", "(l)", "→", "⟶", "⇌", ":")
+            listOf("(aq)", "(s)", "(g)", "(l)", "→", "⟶", "⇌", "⟷", "⟺", ":")
         } else {
-            listOf("(aq)", "(s)", "(g)", "(l)", "→", "⟶", "[", "]")
+            listOf("(aq)", "(s)", "(g)", "(l)", "→", "⟶", "⟷", "⟺", "[", "]")
         },
     )
     Column(
@@ -133,29 +135,23 @@ private fun ElementsPage(onInsert: (String) -> Unit) {
         modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(3.dp),
     ) {
-        elementSymbols.chunked(10).forEach { row -> KeyRow(row) { onInsert(it) } }
+        elementSymbols.chunked(8).forEach { row -> KeyRow(row) { onInsert(it) } }
     }
 }
 
 @Composable
 private fun LettersPage(shift: Boolean, onShift: () -> Unit, onInsert: (String) -> Unit) {
-    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+    Column(Modifier.fillMaxWidth().fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(3.dp)) {
         qwertyRows.forEachIndexed { index, row ->
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+            Row(Modifier.fillMaxWidth().weight(1f), horizontalArrangement = Arrangement.spacedBy(3.dp)) {
                 if (index == 2) {
-                    KeyButton(if (shift) "⇧" else "⇩", Modifier.weight(1.4f)) { onShift() }
+                    KeyButton(if (shift) "⇧" else "⇩", Modifier.weight(1.4f).fillMaxHeight()) { onShift() }
                 }
                 row.forEach { key ->
-                    KeyButton(if (shift) key else key.lowercase(), Modifier.weight(1f)) { onInsert(if (shift) key else key.lowercase()) }
+                    KeyButton(if (shift) key else key.lowercase(), Modifier.weight(1f).fillMaxHeight()) { onInsert(if (shift) key else key.lowercase()) }
                 }
             }
         }
-        Text(
-            "字母页采用 QWERTY 布局，元素页可直接输入完整元素符号。",
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(horizontal = 4.dp, vertical = 6.dp),
-        )
     }
 }
 
@@ -181,7 +177,7 @@ private fun PageButton(label: String, selected: Boolean, modifier: Modifier, onC
 private fun KeyButton(label: String, modifier: Modifier, onClick: () -> Unit) {
     Button(
         onClick = onClick,
-        modifier = modifier.height(34.dp),
+        modifier = modifier.heightIn(min = 40.dp),
         contentPadding = PaddingValues(horizontal = 1.dp),
         colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = Color.Black),
     ) { Text(label, fontSize = 13.sp, textAlign = TextAlign.Center, maxLines = 1) }
