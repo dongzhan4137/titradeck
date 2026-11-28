@@ -455,14 +455,18 @@ private fun CalculatorScreen(tool: ToolDefinition, values: Map<String, String>, 
                 if (result == null) EmptyState("等待计算", "确认数值和单位，结果与推导过程将在这里显示。")
             }
         }
-        AnimatedVisibility(visible = keyboardTarget != null && !systemKeyboardVisible, enter = fadeIn(tween(160)), exit = fadeOut(tween(120))) {
+        AnimatedVisibility(visible = keyboardTarget != null, enter = fadeIn(tween(160)), exit = fadeOut(tween(120))) {
             keyboardTarget?.let { target ->
                 ChemistryKeyboard(
                     kind = target.kind,
                     onInsert = { text -> replaceKeyboardSelection(text) },
                     onDelete = { deleteKeyboardSelection() },
                     onNewline = { replaceKeyboardSelection("\n") },
-                    onSystemKeyboard = { systemKeyboardVisible = true },
+                    onSystemKeyboard = {
+                        systemKeyboardVisible = !systemKeyboardVisible
+                        if (!systemKeyboardVisible) keyboard?.hide()
+                    },
+                    systemKeyboardActive = systemKeyboardVisible,
                 )
             }
         }
@@ -513,6 +517,7 @@ private fun ConversionRequirementInput(
             if (it.isFocused && !busy) onKeyboardFocus(requirement.key, InputKind.NUMBER, value, textValue.selection.start, textValue.selection.end, commit)
         },
         shape = MaterialTheme.shapes.medium,
+        colors = OutlinedTextFieldDefaults.colors(cursorColor = MaterialTheme.colorScheme.primary),
         readOnly = customKeyboardActive,
         trailingIcon = {
             if (requirement.unitKey != null && requirement.choices.isNotEmpty()) {
@@ -568,6 +573,7 @@ private fun InputField(field: FieldSpec, value: String, busy: Boolean, toolId: S
                     }
                 }, shape = MaterialTheme.shapes.medium, minLines = if (field.multiline) 3 else 1,
                 maxLines = if (field.multiline) 8 else 1, singleLine = !field.multiline,
+                colors = OutlinedTextFieldDefaults.colors(cursorColor = MaterialTheme.colorScheme.primary),
                 supportingText = if (field.hint.isNotBlank()) {{ LatexText(field.hint) }} else null,
                 trailingIcon = unitSelector ?: if (constants.isNotEmpty()) {{ TextButton(onClick = { constantMenu = true }) { Text("引用") } }} else null)
             if (constantMenu) AlertDialog(onDismissRequest = { constantMenu = false }, title = { Text("引用参考值") },

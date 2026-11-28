@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.height
@@ -67,6 +68,7 @@ internal fun ChemistryKeyboard(
     onDelete: () -> Unit,
     onNewline: () -> Unit,
     onSystemKeyboard: () -> Unit,
+    systemKeyboardActive: Boolean,
 ) {
     var page by remember(kind) {
         mutableStateOf(if (kind == InputKind.CHEMICAL_FORMULA) KeyboardPage.ELEMENTS else KeyboardPage.SYMBOLS)
@@ -86,24 +88,26 @@ internal fun ChemistryKeyboard(
                 PageButton("123", "数字与符号", page == KeyboardPage.SYMBOLS, Modifier.weight(1f)) { page = KeyboardPage.SYMBOLS }
                 PageButton("⚗", "元素符号", page == KeyboardPage.ELEMENTS, Modifier.weight(1f)) { page = KeyboardPage.ELEMENTS }
                 PageButton("ABC", "字母键盘", page == KeyboardPage.LETTERS, Modifier.weight(1f)) { page = KeyboardPage.LETTERS }
-                PageButton("⌨", "系统键盘", false, Modifier.weight(1f), onSystemKeyboard)
+                PageButton("⌨", "系统键盘", systemKeyboardActive, Modifier.weight(1f), onSystemKeyboard)
             }
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant, thickness = 1.dp)
-            Box(
-                modifier = Modifier.fillMaxWidth().height(190.dp),
-                contentAlignment = Alignment.TopCenter,
-            ) {
-                when (page) {
-                    KeyboardPage.SYMBOLS -> SymbolsPage(kind, onInsert)
-                    KeyboardPage.ELEMENTS -> ElementsPage(onInsert)
-                    KeyboardPage.LETTERS -> LettersPage(shift, { shift = !shift }, onInsert)
+            if (!systemKeyboardActive) {
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant, thickness = 1.dp)
+                Box(
+                    modifier = Modifier.fillMaxWidth().height(190.dp),
+                    contentAlignment = Alignment.TopCenter,
+                ) {
+                    when (page) {
+                        KeyboardPage.SYMBOLS -> SymbolsPage(kind, onInsert)
+                        KeyboardPage.ELEMENTS -> ElementsPage(onInsert)
+                        KeyboardPage.LETTERS -> LettersPage(shift, { shift = !shift }, onInsert)
+                    }
                 }
-            }
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant, thickness = 1.dp)
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                KeyButton("", Modifier.weight(1f).height(38.dp), "空格") { onInsert(" ") }
-                KeyButton("⌫", Modifier.width(52.dp).height(38.dp), "删除", 20.sp) { onDelete() }
-                KeyButton("↵", Modifier.width(52.dp).height(38.dp), "换行", 24.sp) { onNewline() }
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant, thickness = 1.dp)
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    KeyButton("", Modifier.weight(1f).height(38.dp), "空格") { onInsert(" ") }
+                    KeyButton("⌫", Modifier.width(52.dp).height(38.dp), "删除", 20.sp) { onDelete() }
+                    KeyButton("↵", Modifier.width(52.dp).height(38.dp), "换行", 30.sp) { onNewline() }
+                }
             }
         }
     }
@@ -148,12 +152,18 @@ private fun LettersPage(shift: Boolean, onShift: () -> Unit, onInsert: (String) 
     Column(Modifier.fillMaxWidth().fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(3.dp)) {
         qwertyRows.forEachIndexed { index, row ->
             Row(Modifier.fillMaxWidth().weight(1f), horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+                if (index == 1) {
+                    Spacer(Modifier.weight(0.5f))
+                }
                 if (index == 2) {
-                    KeyButton(if (shift) "⇧" else "⇩", Modifier.weight(1.4f).fillMaxHeight()) { onShift() }
+                    Spacer(Modifier.weight(1f))
+                    KeyButton(if (shift) "⬆" else "⇧", Modifier.weight(1f).fillMaxHeight(), "切换大小写", 20.sp) { onShift() }
                 }
                 row.forEach { key ->
                     KeyButton(if (shift) key else key.lowercase(), Modifier.weight(1f).fillMaxHeight()) { onInsert(if (shift) key else key.lowercase()) }
                 }
+                if (index == 1) Spacer(Modifier.weight(0.5f))
+                if (index == 2) Spacer(Modifier.weight(1f))
             }
         }
     }
