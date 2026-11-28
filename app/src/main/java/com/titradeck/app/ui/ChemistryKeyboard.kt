@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
@@ -27,11 +28,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.unit.TextUnit
 import com.titradeck.app.chemistry.InputKind
 
 private enum class KeyboardPage { SYMBOLS, ELEMENTS, LETTERS }
@@ -81,7 +84,7 @@ internal fun ChemistryKeyboard(
         ) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 PageButton("123", "数字与符号", page == KeyboardPage.SYMBOLS, Modifier.weight(1f)) { page = KeyboardPage.SYMBOLS }
-                PageButton("H", "元素符号", page == KeyboardPage.ELEMENTS, Modifier.weight(1f)) { page = KeyboardPage.ELEMENTS }
+                PageButton("⚗", "元素符号", page == KeyboardPage.ELEMENTS, Modifier.weight(1f)) { page = KeyboardPage.ELEMENTS }
                 PageButton("ABC", "字母键盘", page == KeyboardPage.LETTERS, Modifier.weight(1f)) { page = KeyboardPage.LETTERS }
                 PageButton("⌨", "系统键盘", false, Modifier.weight(1f), onSystemKeyboard)
             }
@@ -98,9 +101,9 @@ internal fun ChemistryKeyboard(
             }
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant, thickness = 1.dp)
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                KeyButton("␠", Modifier.weight(2f).height(38.dp), "空格") { onInsert(" ") }
-                KeyButton("⌫", Modifier.weight(1f).height(38.dp), "删除") { onDelete() }
-                KeyButton("↵", Modifier.weight(1f).height(38.dp), "换行") { onNewline() }
+                KeyButton("", Modifier.weight(1f).height(38.dp), "空格") { onInsert(" ") }
+                KeyButton("⌫", Modifier.width(52.dp).height(38.dp), "删除", 20.sp) { onDelete() }
+                KeyButton("↵", Modifier.width(52.dp).height(38.dp), "换行", 24.sp) { onNewline() }
             }
         }
     }
@@ -171,15 +174,17 @@ private fun PageButton(label: String, description: String, selected: Boolean, mo
         contentPadding = PaddingValues(horizontal = 2.dp),
         colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = Color.Black),
         border = if (selected) BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null,
+        shape = RoundedCornerShape(8.dp),
     ) { Text(label, fontSize = 13.sp, maxLines = 1) }
 }
 
 @Composable
-private fun KeyButton(label: String, modifier: Modifier, description: String? = null, onClick: () -> Unit) {
+private fun KeyButton(label: String, modifier: Modifier, description: String? = null, fontSize: TextUnit = 13.sp, onClick: () -> Unit) {
     Button(
         onClick = onClick,
         modifier = modifier.heightIn(min = 36.dp).then(if (description == null) Modifier else Modifier.semantics { contentDescription = description }),
         contentPadding = PaddingValues(horizontal = 1.dp),
         colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = Color.Black),
-    ) { Text(label, fontSize = 13.sp, textAlign = TextAlign.Center, maxLines = 1) }
+        shape = RoundedCornerShape(8.dp),
+    ) { Text(label, fontSize = fontSize, textAlign = TextAlign.Center, maxLines = 1) }
 }
